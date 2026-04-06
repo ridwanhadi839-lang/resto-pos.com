@@ -979,11 +979,7 @@ export const POSScreen: React.FC = () => {
                                 style={styles.savedContactDeleteButton}
                                 onPress={() => handleDeleteSavedContact(contact)}
                               >
-                                <MaterialCommunityIcons
-                                  name="trash-can-outline"
-                                  size={16}
-                                  color={COLORS.error}
-                                />
+                                <Text style={styles.savedContactDeleteText}>Hapus</Text>
                               </TouchableOpacity>
                             </View>
                           </View>
@@ -1484,12 +1480,18 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   savedContactDeleteButton: {
-    width: 32,
+    minWidth: 58,
     height: 32,
     borderRadius: 16,
     backgroundColor: '#FEE2E2',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  savedContactDeleteText: {
+    fontSize: 11,
+    color: COLORS.error,
+    fontWeight: '800',
   },
   savedContactName: {
     fontSize: 13,
