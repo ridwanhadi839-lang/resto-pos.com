@@ -63,6 +63,21 @@ export const hasRemoteOrderAccess = isApiConfigured || isSupabaseConfigured;
 export const hasRemoteCatalogAccess = isApiConfigured || isSupabaseConfigured;
 export const hasOrderRealtimeSync = !isApiConfigured && isSupabaseConfigured;
 
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+export const isRetryableRemoteError = (error: unknown) => {
+  const message = getErrorMessage(error);
+  return (
+    message.includes('tidak bisa terhubung') ||
+    message.includes('network request failed') ||
+    message.includes('failed to fetch') ||
+    message.includes('fetch failed') ||
+    message.includes('network error') ||
+    message.includes('timeout')
+  );
+};
+
 const getRestaurantHeaders = async () => {
   const restaurantCode = await getCurrentRestaurantCode();
 
@@ -162,58 +177,50 @@ export const fetchCatalog = async (): Promise<{
   products: Product[];
 }> => {
   if (isApiConfigured) {
-    try {
-      const response = await apiRequest<{ categories: Category[]; products: Product[] }>(
-        '/api/catalog',
-        {
-          headers: await getRestaurantHeaders(),
-        }
-      );
+    const response = await apiRequest<{ categories: Category[]; products: Product[] }>(
+      '/api/catalog',
+      {
+        headers: await getRestaurantHeaders(),
+      }
+    );
 
-      return {
-        categories: response.data?.categories ?? [],
-        products: response.data?.products ?? [],
-      };
-    } catch {
-      return { categories: CATEGORIES, products: PRODUCTS };
-    }
+    return {
+      categories: response.data?.categories ?? [],
+      products: response.data?.products ?? [],
+    };
   }
 
   if (!isSupabaseConfigured) {
     return { categories: CATEGORIES, products: PRODUCTS };
   }
 
-  try {
-    const client = assertSupabase();
-    const [categoryResult, productResult] = await Promise.all([
-      client.from('categories').select('id, name').order('name'),
-      client
-        .from('products')
-        .select('id, name, price, image_url, category_id')
-        .order('name'),
-    ]);
+  const client = assertSupabase();
+  const [categoryResult, productResult] = await Promise.all([
+    client.from('categories').select('id, name').order('name'),
+    client
+      .from('products')
+      .select('id, name, price, image_url, category_id')
+      .order('name'),
+  ]);
 
-    if (categoryResult.error || productResult.error) {
-      throw categoryResult.error ?? productResult.error;
-    }
-
-    const categories: Category[] = (categoryResult.data ?? []).map((cat) => ({
-      id: cat.id,
-      name: cat.name,
-    }));
-
-    const products: Product[] = (productResult.data ?? []).map((product) => ({
-      id: product.id,
-      name: product.name,
-      price: Number(product.price),
-      imageUrl: product.image_url,
-      categoryId: product.category_id,
-    }));
-
-    return { categories, products };
-  } catch {
-    return { categories: CATEGORIES, products: PRODUCTS };
+  if (categoryResult.error || productResult.error) {
+    throw categoryResult.error ?? productResult.error;
   }
+
+  const categories: Category[] = (categoryResult.data ?? []).map((cat) => ({
+    id: cat.id,
+    name: cat.name,
+  }));
+
+  const products: Product[] = (productResult.data ?? []).map((product) => ({
+    id: product.id,
+    name: product.name,
+    price: Number(product.price),
+    imageUrl: product.image_url,
+    categoryId: product.category_id,
+  }));
+
+  return { categories, products };
 };
 
 export const createCategory = async (name: string): Promise<Category> => {

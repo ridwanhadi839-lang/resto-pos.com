@@ -116,6 +116,7 @@ export const POSScreen: React.FC = () => {
     products,
     filteredProducts,
     isCatalogLoading,
+    catalogError,
     selectedCategoryId,
     setSelectedCategoryId,
   } = usePOSCatalog();
@@ -237,22 +238,29 @@ export const POSScreen: React.FC = () => {
   const handlePaymentSuccess = async (payload: {
     payments: PaymentLine[];
   }) => {
-    if (customer.name.trim() && customer.phone.trim()) {
-      const contacts = await saveCustomerContact({
-        name: customer.name,
-        phone: customer.phone,
-      });
-      setSavedContacts(contacts);
+    try {
+      if (customer.name.trim() && customer.phone.trim()) {
+        const contacts = await saveCustomerContact({
+          name: customer.name,
+          phone: customer.phone,
+        });
+        setSavedContacts(contacts);
+      }
+
+      const savedOrder = await createOrder(makeOrderInput('paid', payload.payments));
+      setPaymentModalVisible(false);
+
+      clearCart();
+      Alert.alert(
+        'Pembayaran tersimpan',
+        `Invoice ${savedOrder.orderNumber}\nTotal ${formatPrice(savedOrder.total)}`
+      );
+    } catch (error) {
+      Alert.alert(
+        'Pembayaran gagal',
+        error instanceof Error ? error.message : 'Order gagal diproses oleh backend.'
+      );
     }
-
-    const savedOrder = await createOrder(makeOrderInput('paid', payload.payments));
-    setPaymentModalVisible(false);
-
-    clearCart();
-    Alert.alert(
-      'Pembayaran tersimpan',
-      `Invoice ${savedOrder.orderNumber}\nTotal ${formatPrice(savedOrder.total)}`
-    );
   };
 
   const cycleDiscount = () => {
@@ -637,6 +645,7 @@ export const POSScreen: React.FC = () => {
           categories={categories}
           selectedCategoryId={selectedCategoryId}
           isCatalogLoading={isCatalogLoading}
+          catalogError={catalogError}
           filteredProducts={filteredProducts}
           onSelectCategory={setSelectedCategoryId}
           onProductPress={handleProductPress}

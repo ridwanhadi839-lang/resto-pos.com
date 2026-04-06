@@ -21,6 +21,7 @@ interface POSMenuPanelProps {
   categories: Category[];
   selectedCategoryId: string;
   isCatalogLoading: boolean;
+  catalogError: string | null;
   filteredProducts: Product[];
   onSelectCategory: (categoryId: string) => void;
   onProductPress: (product: Product) => void;
@@ -35,6 +36,7 @@ export const POSMenuPanel: React.FC<POSMenuPanelProps> = ({
   categories,
   selectedCategoryId,
   isCatalogLoading,
+  catalogError,
   filteredProducts,
   onSelectCategory,
   onProductPress,
@@ -67,6 +69,12 @@ export const POSMenuPanel: React.FC<POSMenuPanelProps> = ({
 
             <View style={styles.categorySection}>
               <Text style={styles.sectionHeading}>Menu Categories</Text>
+              {catalogError ? (
+                <View style={styles.errorBanner}>
+                  <Text style={styles.errorTitle}>Katalog belum tersambung</Text>
+                  <Text style={styles.errorText}>{catalogError}</Text>
+                </View>
+              ) : null}
               <View style={styles.categoryRow}>
                 {categories.map((category) => (
                   <CategoryCard
@@ -177,5 +185,23 @@ const styles = StyleSheet.create({
     color: COLORS.textGray,
     fontSize: 13,
     fontWeight: '600',
+  },
+  errorBanner: {
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    backgroundColor: '#FEF2F2',
+    borderRadius: RADIUS.sm,
+    padding: 10,
+    gap: 4,
+  },
+  errorTitle: {
+    color: COLORS.error,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  errorText: {
+    color: COLORS.error,
+    fontSize: 12,
+    lineHeight: 18,
   },
 });

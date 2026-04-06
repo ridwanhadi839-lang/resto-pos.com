@@ -2,21 +2,25 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { CATEGORIES, PRODUCTS } from '../../data/mockData';
-import { fetchCatalog } from '../../services/orderService';
+import { fetchCatalog, hasRemoteCatalogAccess } from '../../services/orderService';
 import { Category, Product } from '../../types';
 
 export const usePOSCatalog = () => {
-  const [categories, setCategories] = useState<Category[]>(CATEGORIES);
-  const [products, setProducts] = useState<Product[]>(PRODUCTS);
+  const [categories, setCategories] = useState<Category[]>(hasRemoteCatalogAccess ? [] : CATEGORIES);
+  const [products, setProducts] = useState<Product[]>(hasRemoteCatalogAccess ? [] : PRODUCTS);
   const [isCatalogLoading, setCatalogLoading] = useState(true);
-  const [selectedCategoryId, setSelectedCategoryId] = useState(CATEGORIES[0]?.id ?? '');
+  const [selectedCategoryId, setSelectedCategoryId] = useState(
+    hasRemoteCatalogAccess ? '' : CATEGORIES[0]?.id ?? ''
+  );
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
   const loadCatalog = useCallback(async () => {
     setCatalogLoading(true);
+    setCatalogError(null);
     try {
       const catalog = await fetchCatalog();
-      const nextCategories = catalog.categories.length > 0 ? catalog.categories : CATEGORIES;
-      const nextProducts = catalog.products.length > 0 ? catalog.products : PRODUCTS;
+      const nextCategories = catalog.categories;
+      const nextProducts = catalog.products;
 
       setCategories(nextCategories);
       setProducts(nextProducts);
@@ -24,10 +28,17 @@ export const usePOSCatalog = () => {
         const exists = nextCategories.some((cat) => cat.id === prev);
         return exists ? prev : nextCategories[0]?.id ?? '';
       });
-    } catch {
-      setCategories(CATEGORIES);
-      setProducts(PRODUCTS);
-      setSelectedCategoryId((prev) => (prev ? prev : CATEGORIES[0]?.id ?? ''));
+    } catch (error) {
+      if (hasRemoteCatalogAccess) {
+        setCategories([]);
+        setProducts([]);
+        setSelectedCategoryId('');
+        setCatalogError(error instanceof Error ? error.message : 'Gagal memuat katalog.');
+      } else {
+        setCategories(CATEGORIES);
+        setProducts(PRODUCTS);
+        setSelectedCategoryId((prev) => (prev ? prev : CATEGORIES[0]?.id ?? ''));
+      }
     } finally {
       setCatalogLoading(false);
     }
@@ -53,6 +64,7 @@ export const usePOSCatalog = () => {
     products,
     filteredProducts,
     isCatalogLoading,
+    catalogError,
     selectedCategoryId,
     setSelectedCategoryId,
     reloadCatalog: loadCatalog,

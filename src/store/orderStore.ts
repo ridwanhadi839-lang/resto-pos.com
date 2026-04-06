@@ -14,6 +14,7 @@ import {
   fetchOrders,
   hasOrderRealtimeSync,
   hasRemoteOrderAccess,
+  isRetryableRemoteError,
   subscribeOrdersRealtime,
   updateOrderStatus as updateOrderStatusRemote,
 } from '../services/orderService';
@@ -199,7 +200,14 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       const pendingCount = await calculatePendingCount();
       set(() => ({ pendingSyncCount: pendingCount }));
       return saved;
-    } catch {
+    } catch (error) {
+      if (!isRetryableRemoteError(error)) {
+        set((state) => ({
+          orders: state.orders.filter((order) => order.id !== optimisticOrder.id),
+        }));
+        throw error;
+      }
+
       const queueId = `queue-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       await enqueueOrder({ queueId, localOrderId, payload: orderInput });
       const pendingCount = await calculatePendingCount();
@@ -244,7 +252,22 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       await updateOrderStatusRemote(orderId, status);
       const pendingCount = await calculatePendingCount();
       set(() => ({ pendingSyncCount: pendingCount }));
-    } catch {
+    } catch (error) {
+      if (!isRetryableRemoteError(error)) {
+        set((state) => ({
+          orders: state.orders.map((order) =>
+            order.id === orderId
+              ? {
+                  ...order,
+                  status: target.status,
+                  synced: target.synced,
+                }
+              : order
+          ),
+        }));
+        throw error;
+      }
+
       const queueId = `status-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       await enqueueStatusUpdate({ queueId, orderId, status });
       const pendingCount = await calculatePendingCount();
