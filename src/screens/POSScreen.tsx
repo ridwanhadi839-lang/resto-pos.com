@@ -196,14 +196,22 @@ export const POSScreen: React.FC = () => {
     restaurantName: user?.restaurantName,
   });
 
-  useEffect(() => {
-    const loadSavedContacts = async () => {
+  const loadSavedContacts = useCallback(async () => {
+    try {
       const contacts = await getSavedCustomerContacts();
       setSavedContacts(contacts);
-    };
-
-    loadSavedContacts();
+    } catch (error) {
+      console.warn(
+        'Gagal memuat customer contacts:',
+        error instanceof Error ? error.message : error
+      );
+      setSavedContacts([]);
+    }
   }, []);
+
+  useEffect(() => {
+    loadSavedContacts();
+  }, [loadSavedContacts]);
   const refreshSavedPrinters = useCallback(async () => {
     const [saved, savedMode] = await Promise.all([
       getSavedThermalTargets(),
@@ -275,11 +283,18 @@ export const POSScreen: React.FC = () => {
   }) => {
     try {
       if (customer.name.trim() && customer.phone.trim()) {
-        const contacts = await upsertCustomerContact({
-          name: customer.name,
-          phone: customer.phone,
-        });
-        setSavedContacts(contacts);
+        try {
+          const contacts = await upsertCustomerContact({
+            name: customer.name,
+            phone: customer.phone,
+          });
+          setSavedContacts(contacts);
+        } catch (error) {
+          console.warn(
+            'Gagal menyimpan customer contact saat pembayaran:',
+            error instanceof Error ? error.message : error
+          );
+        }
       }
 
       const savedOrder = await createOrder(makeOrderInput('paid', payload.payments));
@@ -425,6 +440,11 @@ export const POSScreen: React.FC = () => {
       setIsAddingCustomer(false);
       setCustomerModalVisible(false);
       Alert.alert('Kontak tersimpan', 'Nama dan no telepon bisa dipakai lagi.');
+    } catch (error) {
+      Alert.alert(
+        'Kontak gagal disimpan',
+        error instanceof Error ? error.message : 'Customer belum berhasil disimpan.'
+      );
     } finally {
       setSavingContact(false);
     }
@@ -440,14 +460,21 @@ export const POSScreen: React.FC = () => {
           text: 'Hapus',
           style: 'destructive',
           onPress: async () => {
-            const contacts = await deleteCustomerContact(contact.id);
-            setSavedContacts(contacts);
+            try {
+              const contacts = await deleteCustomerContact(contact.id);
+              setSavedContacts(contacts);
 
-            if (customer.name === contact.name && customer.phone === contact.phone) {
-              setCustomer({ name: '', phone: '' });
+              if (customer.name === contact.name && customer.phone === contact.phone) {
+                setCustomer({ name: '', phone: '' });
+              }
+
+              setIsAddingCustomer(contacts.length === 0);
+            } catch (error) {
+              Alert.alert(
+                'Hapus gagal',
+                error instanceof Error ? error.message : 'Customer belum berhasil dihapus.'
+              );
             }
-
-            setIsAddingCustomer(contacts.length === 0);
           },
         },
       ]

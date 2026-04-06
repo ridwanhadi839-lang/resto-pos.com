@@ -6,6 +6,7 @@ const { env, assertEnvConfig } = require('./config/env');
 const { errorHandler, notFoundHandler } = require('./middleware/error-handler');
 const authRoutes = require('./routes/auth.routes');
 const catalogRoutes = require('./routes/catalog.routes');
+const customerContactRoutes = require('./routes/customer-contact.routes');
 const healthRoutes = require('./routes/health.routes');
 const orderRoutes = require('./routes/order.routes');
 
@@ -40,6 +41,7 @@ app.get('/', (_req, res) => {
       health: '/api/health',
       auth: '/api/auth',
       catalog: '/api/catalog',
+      customerContacts: '/api/customer-contacts',
       orders: '/api/orders',
     },
   });
@@ -48,6 +50,7 @@ app.get('/', (_req, res) => {
 app.use('/api/health', healthRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/catalog', catalogRoutes);
+app.use('/api/customer-contacts', customerContactRoutes);
 app.use('/api/orders', orderRoutes);
 
 app.use(notFoundHandler);
