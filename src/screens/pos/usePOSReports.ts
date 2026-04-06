@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 
-import { CancelLog, Category, Order, Product } from '../../types';
+import { CancelLog, Category, OpenTillEntry, Order, Product } from '../../types';
 import {
   buildProductMixReport,
   buildTillSummaryReport,
   getCancelLogsByDate,
+  getOpenTillEntriesByDate,
   getReportOrdersByDate,
   toDateKey,
 } from '../../utils/reporting';
@@ -208,12 +209,14 @@ const buildCalendarMonth = (year: number, month: number) => {
 export const usePOSReports = ({
   orders,
   cancelLogs,
+  openTillEntries,
   categories,
   products,
   restaurantName,
 }: {
   orders: Order[];
   cancelLogs: CancelLog[];
+  openTillEntries: OpenTillEntry[];
   categories: Category[];
   products: Product[];
   restaurantName?: string;
@@ -244,13 +247,19 @@ export const usePOSReports = ({
     return getCancelLogsByDate(cancelLogs, selectedReportDate);
   }, [cancelLogs, selectedReportDate]);
 
+  const selectedOpenTillEntries = useMemo(() => {
+    if (!selectedReportDate) return [];
+    return getOpenTillEntriesByDate(openTillEntries, selectedReportDate);
+  }, [openTillEntries, selectedReportDate]);
+
   const tillSummaryReport = useMemo(
     () =>
       buildTillSummaryReport({
         orders: selectedReportOrders,
         cancelLogs: selectedCancelLogs,
+        openTillEntries: selectedOpenTillEntries,
       }),
-    [selectedCancelLogs, selectedReportOrders]
+    [selectedCancelLogs, selectedOpenTillEntries, selectedReportOrders]
   );
 
   const productMix = useMemo(

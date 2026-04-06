@@ -1,4 +1,4 @@
-import { CancelLog, Category, Order, Product } from '../types';
+import { CancelLog, Category, OpenTillEntry, Order, Product } from '../types';
 
 type ReportRow = {
   label: string;
@@ -48,13 +48,18 @@ export const getReportOrdersByDate = (orders: Order[], reportDate: string) =>
 export const getCancelLogsByDate = (cancelLogs: CancelLog[], reportDate: string) =>
   cancelLogs.filter((log) => toDateKey(new Date(log.createdAt)) === reportDate);
 
+export const getOpenTillEntriesByDate = (openTillEntries: OpenTillEntry[], reportDate: string) =>
+  openTillEntries.filter((entry) => toDateKey(new Date(entry.createdAt)) === reportDate);
+
 export const buildTillSummaryReport = ({
   orders,
   cancelLogs,
+  openTillEntries = [],
   printedAt = new Date().toLocaleString('id-ID'),
 }: {
   orders: Order[];
   cancelLogs: CancelLog[];
+  openTillEntries?: OpenTillEntry[];
   printedAt?: string;
 }): TillSummaryReport => {
   const orderTypeSummary: Record<string, { label: string; total: number; count: number }> = {
@@ -82,6 +87,8 @@ export const buildTillSummaryReport = ({
   const averagePerOrder = orderCount > 0 ? netSales / orderCount : 0;
   const cancelCount = cancelLogs.length;
   const cancelTotal = cancelLogs.reduce((sum, log) => sum + log.total, 0);
+  const openTillCount = openTillEntries.length;
+  const openTillAmount = openTillEntries.reduce((sum, entry) => sum + entry.amount, 0);
 
   const paymentRows = orders.reduce<Record<string, { qty: number; amount: number }>>(
     (acc, order) => {
@@ -113,6 +120,7 @@ export const buildTillSummaryReport = ({
   return {
     printedAt,
     rows: [
+      { label: 'Open Till', qty: openTillCount, amount: openTillAmount },
       { label: 'Gross Sales', qty: orderCount, amount: grossSales },
       { label: 'Discount', qty: orderCount, amount: discountTotal },
       { label: 'Tax Charge', qty: orderCount, amount: taxTotal },

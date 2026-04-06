@@ -136,3 +136,11 @@ export interface CancelLog {
   itemCount: number;
   createdAt: string;
 }
+
+export interface OpenTillEntry {
+  id: string;
+  amount: number;
+  createdAt: string;
+  cashierName?: string;
+  cashierUserId?: string;
+}

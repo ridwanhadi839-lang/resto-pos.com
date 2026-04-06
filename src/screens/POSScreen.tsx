@@ -18,6 +18,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useCartStore } from '../store/cartStore';
 import { useAuthStore } from '../store/authStore';
 import { useOrderStore } from '../store/orderStore';
+import { useTillStore } from '../store/tillStore';
 import { formatPrice } from '../data/mockData';
 import { ActionCard, CancelReason, Order, PaymentLine, Product } from '../types';
 
@@ -109,6 +110,9 @@ export const POSScreen: React.FC = () => {
   const createOrder = useOrderStore((s) => s.createOrder);
   const addCancelLog = useOrderStore((s) => s.addCancelLog);
   const resetOrderState = useOrderStore((s) => s.resetOrderState);
+  const openTillEntry = useTillStore((s) => s.openTillEntry);
+  const setOpenTill = useTillStore((s) => s.setOpenTill);
+  const resetTillState = useTillStore((s) => s.resetTillState);
   const isPaidOrderLoaded = sourceOrderStatus === 'paid';
 
   const {
@@ -145,6 +149,8 @@ export const POSScreen: React.FC = () => {
   const [savedDeviceName, setSavedDeviceName] = useState('');
   const [savedTarget, setSavedTarget] = useState('');
   const [loadingPrinter, setLoadingPrinter] = useState(false);
+  const [isOpenTillModalVisible, setOpenTillModalVisible] = useState(false);
+  const [openTillAmountInput, setOpenTillAmountInput] = useState('');
 
   const thermalAvailable = isThermalFeatureEnabled();
   const thermalDisabledMessage = getThermalFeatureMessage();
@@ -162,6 +168,7 @@ export const POSScreen: React.FC = () => {
   } = usePOSReports({
     orders,
     cancelLogs,
+    openTillEntries: openTillEntry ? [openTillEntry] : [],
     categories,
     products,
     restaurantName: user?.restaurantName,
@@ -192,6 +199,17 @@ export const POSScreen: React.FC = () => {
   useEffect(() => {
     refreshSavedTarget();
   }, [refreshSavedTarget]);
+
+  useEffect(() => {
+    if (route.name !== 'Home') return;
+
+    if (user && !openTillEntry) {
+      setOpenTillModalVisible(true);
+      return;
+    }
+
+    setOpenTillModalVisible(false);
+  }, [openTillEntry, route.name, user]);
 
   const makeOrderInput = (
     status: 'pending' | 'paid' | 'sent_to_kitchen',
@@ -494,6 +512,7 @@ export const POSScreen: React.FC = () => {
     try {
       resetCartState();
       resetOrderState();
+      resetTillState();
       setMoreModalVisible(false);
       setMoreSection(null);
       setSelectedReportDate(null);
@@ -504,6 +523,29 @@ export const POSScreen: React.FC = () => {
     } finally {
       setLoggingOut(false);
     }
+  };
+
+  const handleOpenTillSubmit = () => {
+    const normalizedValue = openTillAmountInput.replace(/[^\d]/g, '');
+    if (!normalizedValue) {
+      Alert.alert('Open till belum valid', 'Masukkan jumlah uang awal di cashier.');
+      return;
+    }
+
+    const amount = Number(normalizedValue);
+    if (!Number.isFinite(amount) || amount < 0) {
+      Alert.alert('Open till belum valid', 'Jumlah uang awal harus berupa angka yang valid.');
+      return;
+    }
+
+    setOpenTill({
+      amount,
+      cashierName: user?.name,
+      cashierUserId: user?.id,
+    });
+    setOpenTillAmountInput('');
+    setOpenTillModalVisible(false);
+    Alert.alert('Till dibuka', `Open till tersimpan sebesar ${formatPrice(amount)}.`);
   };
 
   const handleActionCardPress = async (card: ActionCard) => {
@@ -659,6 +701,42 @@ export const POSScreen: React.FC = () => {
         onSubmitPayment={handlePaymentSuccess}
         totalAmount={total()}
       />
+
+      <Modal
+        visible={route.name === 'Home' && isOpenTillModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.notesOverlay}>
+          <View style={styles.notesCard}>
+            <View style={styles.notesHeader}>
+              <Text style={styles.notesTitle}>Open Till</Text>
+            </View>
+
+            <Text style={styles.voidModalText}>
+              Masukkan jumlah uang awal yang tersedia di cashier sebelum mulai transaksi.
+            </Text>
+
+            <View style={styles.phoneInputGroup}>
+              <Text style={styles.phoneInputLabel}>Uang Awal Cashier</Text>
+              <TextInput
+                value={openTillAmountInput}
+                onChangeText={(value) => setOpenTillAmountInput(value.replace(/[^\d]/g, ''))}
+                placeholder="Contoh: 100000"
+                keyboardType="numeric"
+                style={styles.phoneInput}
+              />
+            </View>
+
+            <View style={styles.notesActions}>
+              <TouchableOpacity style={styles.notesPrimaryButton} onPress={handleOpenTillSubmit}>
+                <Text style={styles.notesPrimaryText}>Buka Till</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <POSVoidModal
         visible={isVoidModalVisible}
