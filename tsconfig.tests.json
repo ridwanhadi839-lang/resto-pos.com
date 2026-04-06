@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": ".test-dist",
+    "module": "commonjs",
+    "target": "es2020",
+    "moduleResolution": "node",
+    "lib": ["es2020"],
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "src/types/index.ts",
+    "src/utils/cancelLog.ts",
+    "src/utils/reporting.ts"
+  ]
+}

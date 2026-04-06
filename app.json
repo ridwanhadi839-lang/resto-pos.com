@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "RestaurantPOS",
+    "slug": "restaurantpos",
+    "version": "1.0.0",
+    "orientation": "landscape",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#6D28D9"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.restaurantpos.app",
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "Aplikasi membutuhkan Bluetooth untuk terhubung ke printer thermal.",
+        "NSLocalNetworkUsageDescription": "Aplikasi membutuhkan akses jaringan lokal untuk printer LAN."
+      }
+    },
+    "android": {
+      "package": "com.restaurantpos.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#6D28D9"
+      },
+      "permissions": [
+        "BLUETOOTH",
+        "BLUETOOTH_ADMIN",
+        "BLUETOOTH_CONNECT",
+        "BLUETOOTH_SCAN",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-font"
+    ]
+  }
+}
