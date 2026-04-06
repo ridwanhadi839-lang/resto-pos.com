@@ -3,8 +3,7 @@ import { CancelReason, Order } from '../../types';
 export type MoreSection =
   | 'till-summary'
   | 'product-mix'
-  | 'bluetooth-printer'
-  | 'bluetooth-check';
+  | 'bluetooth-printer';
 export type PrintableReportSection = Extract<MoreSection, 'till-summary' | 'product-mix'>;
 
 export const DISCOUNT_STEPS = [0, 10, 15, 20];
@@ -12,7 +11,6 @@ export const MORE_MENU_ITEMS: Array<{ id: MoreSection; label: string }> = [
   { id: 'till-summary', label: 'Till Summary' },
   { id: 'product-mix', label: 'Product Mix' },
   { id: 'bluetooth-printer', label: 'Bluetooth Printer' },
-  { id: 'bluetooth-check', label: 'Cek Koneksi' },
 ];
 export const VOID_REASONS: CancelReason[] = ['Customer Cancel', 'Wrong Order'];
 export const CALENDAR_WEEKDAYS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];

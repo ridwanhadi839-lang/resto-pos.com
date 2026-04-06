@@ -479,44 +479,44 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
               ))}
             </View>
           )}
+
+          <View style={styles.moreCheckSection}>
+            <Text style={styles.moreSectionCaption}>Test Printer</Text>
+            <Text style={styles.moreContentSub}>
+              {thermalAvailable
+                ? 'Tes koneksi printer langsung dari halaman settings bluetooth.'
+                : thermalDisabledMessage}
+            </Text>
+
+            <View style={styles.moreCheckGrid}>
+              {bluetoothCheckRoles.map((role) => (
+                <TouchableOpacity
+                  key={role}
+                  style={[styles.moreCheckCard, !thermalAvailable && styles.moreCheckCardDisabled]}
+                  onPress={() => onRunBluetoothCheck(role)}
+                  disabled={!thermalAvailable}
+                >
+                  <Text style={styles.moreCheckTitle}>
+                    {getThermalPrinterRoleLabel(role, printerSetupMode)}
+                  </Text>
+                  <Text style={styles.moreCheckText}>
+                    {role === 'main'
+                      ? 'Cetak test koneksi untuk printer utama cashier.'
+                      : role === 'dine-in' && printerSetupMode === 2
+                        ? 'Cetak test koneksi untuk kitchen shared.'
+                        : role === 'dine-in'
+                          ? 'Cetak test koneksi untuk kitchen dine in.'
+                          : 'Cetak test koneksi untuk kitchen take away.'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
         </View>
       );
     }
 
-    return (
-      <View style={styles.moreContentWrap}>
-        <Text style={styles.moreContentHeading}>Cek Koneksi Bluetooth</Text>
-        <Text style={styles.moreContentSub}>
-          {thermalAvailable
-            ? 'Gunakan tombol ini untuk test printer kasir, kitchen dine in, dan kitchen take away.'
-            : thermalDisabledMessage}
-        </Text>
-
-        <View style={styles.moreCheckGrid}>
-          {bluetoothCheckRoles.map((role) => (
-            <TouchableOpacity
-              key={role}
-              style={[styles.moreCheckCard, !thermalAvailable && styles.moreCheckCardDisabled]}
-              onPress={() => onRunBluetoothCheck(role)}
-              disabled={!thermalAvailable}
-            >
-              <Text style={styles.moreCheckTitle}>
-                {getThermalPrinterRoleLabel(role, printerSetupMode)}
-              </Text>
-              <Text style={styles.moreCheckText}>
-                {role === 'main'
-                  ? 'Cetak test koneksi untuk printer utama cashier.'
-                  : role === 'dine-in' && printerSetupMode === 2
-                    ? 'Cetak test koneksi untuk kitchen shared.'
-                    : role === 'dine-in'
-                    ? 'Cetak test koneksi untuk kitchen dine in.'
-                    : 'Cetak test koneksi untuk kitchen take away.'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-    );
+    return null;
   };
 
   return (
@@ -1004,6 +1004,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 12,
   },
+  moreCheckSection: {
+    gap: 10,
+  },
   moreCheckCard: {
     width: '48%',
     minHeight: 140,
@@ -1021,6 +1024,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.textDark,
     fontWeight: '800',
+  },
+  moreSectionCaption: {
+    fontSize: 12,
+    color: COLORS.textGray,
+    fontWeight: '700',
+    textTransform: 'uppercase',
   },
   moreCheckText: {
     fontSize: 13,
