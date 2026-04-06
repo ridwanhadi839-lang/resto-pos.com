@@ -6,9 +6,6 @@ node_modules/
 .env.*
 !.env.example
 
-# Frontend-only repository
-backend/
-
 # Expo / React Native local state
 .expo/
 .expo-shared/
