@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import * as Print from 'expo-print';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   Alert,
   Modal,
@@ -153,6 +154,7 @@ export const POSScreen: React.FC = () => {
   const [savedContacts, setSavedContacts] = useState<SavedCustomerContact[]>([]);
   const [isSavingContact, setSavingContact] = useState(false);
   const [isCustomerModalVisible, setCustomerModalVisible] = useState(false);
+  const [isAddingCustomer, setIsAddingCustomer] = useState(false);
   const [customerDraft, setCustomerDraft] = useState({ name: '', phone: '' });
   const [isMoreModalVisible, setMoreModalVisible] = useState(false);
   const [isLogoutModalVisible, setLogoutModalVisible] = useState(false);
@@ -375,14 +377,20 @@ export const POSScreen: React.FC = () => {
       name: customer.name,
       phone: customer.phone,
     });
+    setIsAddingCustomer(savedContacts.length === 0);
     setCustomerModalVisible(true);
   };
 
   const handleSelectSavedContact = (contact: SavedCustomerContact) => {
+    setCustomer({
+      name: contact.name,
+      phone: contact.phone,
+    });
     setCustomerDraft({
       name: contact.name,
       phone: contact.phone,
     });
+    setCustomerModalVisible(false);
   };
 
   const handleApplyCustomer = () => {
@@ -406,6 +414,12 @@ export const POSScreen: React.FC = () => {
         phone: customerDraft.phone,
       });
       setSavedContacts(contacts);
+      setCustomer({
+        name: customerDraft.name.trim(),
+        phone: customerDraft.phone.trim(),
+      });
+      setIsAddingCustomer(false);
+      setCustomerModalVisible(false);
       Alert.alert('Kontak tersimpan', 'Nama dan no telepon bisa dipakai lagi.');
     } finally {
       setSavingContact(false);
@@ -791,10 +805,33 @@ export const POSScreen: React.FC = () => {
             <TouchableWithoutFeedback>
               <View style={styles.customerModalCard}>
                 <View style={styles.customerModalHeader}>
-                  <View>
+                  <TouchableOpacity
+                    style={styles.customerModalHeaderAction}
+                    onPress={() => {
+                      if (isAddingCustomer && savedContacts.length > 0) {
+                        setIsAddingCustomer(false);
+                        return;
+                      }
+
+                      setCustomerDraft({
+                        name: customer.name,
+                        phone: customer.phone,
+                      });
+                      setIsAddingCustomer(true);
+                    }}
+                  >
+                    <MaterialCommunityIcons
+                      name={isAddingCustomer && savedContacts.length > 0 ? 'arrow-left' : 'plus'}
+                      size={20}
+                      color={COLORS.textDark}
+                    />
+                  </TouchableOpacity>
+                  <View style={styles.customerModalHeaderContent}>
                     <Text style={styles.customerModalTitle}>Customer</Text>
                     <Text style={styles.customerModalSub}>
-                      Simpan nama dan nomor telepon dengan tampilan yang lebih rapi.
+                      {isAddingCustomer
+                        ? 'Tambahkan nama dan nomor telepon customer baru.'
+                        : 'Pilih kontak yang sudah tersimpan di database customer.'}
                     </Text>
                   </View>
                   <TouchableOpacity onPress={() => setCustomerModalVisible(false)}>
@@ -802,84 +839,138 @@ export const POSScreen: React.FC = () => {
                   </TouchableOpacity>
                 </View>
 
-                <View style={styles.phoneInputGroup}>
-                  <Text style={styles.phoneInputLabel}>Nama</Text>
-                  <TextInput
-                    value={customerDraft.name}
-                    onChangeText={(value) =>
-                      setCustomerDraft((current) => ({ ...current, name: value }))
-                    }
-                    placeholder="Nama customer"
-                    style={styles.phoneInput}
-                  />
-                </View>
+                {isAddingCustomer ? (
+                  <>
+                    <View style={styles.phoneInputGroup}>
+                      <Text style={styles.phoneInputLabel}>Nama</Text>
+                      <TextInput
+                        value={customerDraft.name}
+                        onChangeText={(value) =>
+                          setCustomerDraft((current) => ({ ...current, name: value }))
+                        }
+                        placeholder="Nama customer"
+                        style={styles.phoneInput}
+                      />
+                    </View>
 
-                <View style={styles.phoneInputGroup}>
-                  <Text style={styles.phoneInputLabel}>No Telepon</Text>
-                  <TextInput
-                    value={customerDraft.phone}
-                    onChangeText={(value) =>
-                      setCustomerDraft((current) => ({ ...current, phone: value }))
-                    }
-                    placeholder="08xxxxxxxxxx"
-                    keyboardType="phone-pad"
-                    style={styles.phoneInput}
-                  />
-                </View>
+                    <View style={styles.phoneInputGroup}>
+                      <Text style={styles.phoneInputLabel}>No Telepon</Text>
+                      <TextInput
+                        value={customerDraft.phone}
+                        onChangeText={(value) =>
+                          setCustomerDraft((current) => ({ ...current, phone: value }))
+                        }
+                        placeholder="08xxxxxxxxxx"
+                        keyboardType="phone-pad"
+                        style={styles.phoneInput}
+                      />
+                    </View>
 
-                {savedContacts.length > 0 ? (
+                    <View style={styles.customerModalActions}>
+                      <TouchableOpacity
+                        style={styles.customerModalSecondaryButton}
+                        onPress={() => {
+                          if (savedContacts.length > 0) {
+                            setIsAddingCustomer(false);
+                            return;
+                          }
+
+                          setCustomerModalVisible(false);
+                        }}
+                      >
+                        <Text style={styles.customerModalSecondaryText}>Batal</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.customerModalPrimaryButton}
+                        onPress={handleSaveCustomerContact}
+                        disabled={isSavingContact}
+                      >
+                        <Text style={styles.customerModalPrimaryText}>
+                          {isSavingContact ? 'Saving...' : 'Simpan'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                ) : savedContacts.length > 0 ? (
                   <View style={styles.savedContactsWrap}>
                     <Text style={styles.savedContactsTitle}>Kontak Tersimpan</Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.savedContactsRow}
-                    >
-                      {savedContacts.map((contact) => (
-                        <TouchableOpacity
-                          key={contact.id}
-                          style={styles.savedContactChip}
-                          onPress={() => handleSelectSavedContact(contact)}
+                    <View style={styles.savedContactsTable}>
+                      <View style={styles.savedContactsHeaderRow}>
+                        <Text
+                          style={[styles.savedContactsHeaderText, styles.savedContactNameColumn]}
                         >
-                          <Text style={styles.savedContactName} numberOfLines={1}>
-                            {contact.name}
-                          </Text>
-                          <Text style={styles.savedContactPhone}>{contact.phone}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
+                          Nama
+                        </Text>
+                        <Text
+                          style={[styles.savedContactsHeaderText, styles.savedContactPhoneColumn]}
+                        >
+                          No Telepon
+                        </Text>
+                      </View>
+                      <ScrollView
+                        showsVerticalScrollIndicator={false}
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.savedContactsTableBody}
+                      >
+                        {savedContacts.map((contact, index) => (
+                          <TouchableOpacity
+                            key={contact.id}
+                            style={[
+                              styles.savedContactRow,
+                              index === savedContacts.length - 1 && styles.savedContactRowLast,
+                              customer.name === contact.name &&
+                                customer.phone === contact.phone &&
+                                styles.savedContactRowActive,
+                            ]}
+                            onPress={() => handleSelectSavedContact(contact)}
+                          >
+                            <Text
+                              style={[styles.savedContactName, styles.savedContactNameColumn]}
+                              numberOfLines={1}
+                            >
+                              {contact.name}
+                            </Text>
+                            <Text
+                              style={[styles.savedContactPhone, styles.savedContactPhoneColumn]}
+                            >
+                              {contact.phone}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.customerEmptyState}>
+                    <Text style={styles.customerEmptyStateTitle}>Belum ada kontak tersimpan</Text>
+                    <Text style={styles.customerEmptyStateText}>
+                      Tekan ikon + di kiri atas untuk menambahkan nama dan nomor telepon customer.
+                    </Text>
+                  </View>
+                )}
+
+                {!isAddingCustomer ? (
+                  <View style={styles.customerModalActions}>
+                    <TouchableOpacity
+                      style={styles.customerModalSecondaryButton}
+                      onPress={() => {
+                        setCustomerDraft({ name: '', phone: '' });
+                        setCustomer({ name: '', phone: '' });
+                        setCustomerModalVisible(false);
+                      }}
+                    >
+                      <Text style={styles.customerModalSecondaryText}>Kosongkan</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.customerModalGhostButton}
+                      onPress={handleApplyCustomer}
+                    >
+                      <Text style={styles.customerModalGhostText}>Gunakan Draft</Text>
+                    </TouchableOpacity>
                   </View>
                 ) : null}
-
-                <View style={styles.customerModalActions}>
-                  <TouchableOpacity
-                    style={styles.customerModalGhostButton}
-                    onPress={handleSaveCustomerContact}
-                    disabled={isSavingContact}
-                  >
-                    <Text style={styles.customerModalGhostText}>
-                      {isSavingContact ? 'Saving...' : 'Simpan Kontak'}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.customerModalSecondaryButton}
-                    onPress={() => {
-                      setCustomerDraft({ name: '', phone: '' });
-                      setCustomer({ name: '', phone: '' });
-                      setCustomerModalVisible(false);
-                    }}
-                  >
-                    <Text style={styles.customerModalSecondaryText}>Kosongkan</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.customerModalPrimaryButton}
-                    onPress={handleApplyCustomer}
-                  >
-                    <Text style={styles.customerModalPrimaryText}>Gunakan</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -1216,6 +1307,19 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 12,
   },
+  customerModalHeaderAction: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  customerModalHeaderContent: {
+    flex: 1,
+  },
   customerModalTitle: {
     fontSize: 16,
     color: COLORS.textDark,
@@ -1263,28 +1367,86 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
   },
-  savedContactsRow: {
-    gap: 8,
-    paddingRight: 4,
-  },
-  savedContactChip: {
-    width: 132,
+  savedContactsTable: {
     borderRadius: RADIUS.md,
-    backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: 10,
-    gap: 4,
+    backgroundColor: COLORS.white,
+    overflow: 'hidden',
+  },
+  savedContactsHeaderRow: {
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  savedContactsHeaderText: {
+    fontSize: 11,
+    color: COLORS.textGray,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  savedContactsTableBody: {
+    paddingBottom: 2,
+  },
+  savedContactRow: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    backgroundColor: COLORS.white,
+  },
+  savedContactRowLast: {
+    borderBottomWidth: 0,
+  },
+  savedContactRowActive: {
+    backgroundColor: COLORS.lightPurple,
+  },
+  savedContactNameColumn: {
+    flex: 1.1,
+    paddingRight: 12,
+  },
+  savedContactPhoneColumn: {
+    flex: 1,
   },
   savedContactName: {
-    fontSize: 12,
+    fontSize: 13,
     color: COLORS.textDark,
     fontWeight: '800',
   },
   savedContactPhone: {
-    fontSize: 11,
+    fontSize: 12,
     color: COLORS.textGray,
     fontWeight: '600',
+  },
+  customerEmptyState: {
+    minHeight: 160,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    gap: 8,
+  },
+  customerEmptyStateTitle: {
+    fontSize: 14,
+    color: COLORS.textDark,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  customerEmptyStateText: {
+    fontSize: 12,
+    color: COLORS.textGray,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 18,
   },
   customerModalActions: {
     flexDirection: 'row',
