@@ -66,7 +66,16 @@ const syncAllQueues = async (set: (fn: (state: OrderState) => Partial<OrderState
       try {
         const created = await createOrder(item.payload);
         set((state) => ({
-          orders: state.orders.map((order) => (order.id === item.localOrderId ? created : order)),
+          orders: (() => {
+            const hasLocalPlaceholder = state.orders.some((order) => order.id === item.localOrderId);
+            if (!hasLocalPlaceholder) {
+              return [created, ...state.orders];
+            }
+
+            return state.orders.map((order) =>
+              order.id === item.localOrderId ? created : order
+            );
+          })(),
         }));
       } catch {
         remainingOrders.push(item);
@@ -109,11 +118,9 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     try {
       if (online && hasRemoteOrderAccess) {
         await syncAllQueues(set);
-        const remoteOrders = await fetchOrders();
-        set(() => ({ orders: remoteOrders }));
       }
     } catch {
-      // Keep local state when remote refresh fails.
+      // Keep initial orders empty when remote sync fails.
     } finally {
       const pendingCount = await calculatePendingCount();
       set(() => ({
@@ -131,8 +138,6 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         if (nowOnline && hasRemoteOrderAccess) {
           try {
             await syncAllQueues(set);
-            const remoteOrders = await fetchOrders();
-            set(() => ({ orders: remoteOrders }));
           } finally {
             const pendingCount = await calculatePendingCount();
             set(() => ({ pendingSyncCount: pendingCount }));
