@@ -31,7 +31,11 @@ import { COLORS, RADIUS } from '../constants/theme';
 import { createDefaultPayments } from '../services/orderService';
 import { recordVoidAuditLog } from '../services/orderAuditService';
 import { printCashierReceipt, printKitchenTicket } from '../services/printService';
-import { getSavedCustomerContacts, saveCustomerContact } from '../services/customerContactService';
+import {
+  deleteCustomerContact,
+  getSavedCustomerContacts,
+  upsertCustomerContact,
+} from '../services/customerContactService';
 import {
   clearSavedThermalTarget,
   discoverThermalPrinters,
@@ -271,7 +275,7 @@ export const POSScreen: React.FC = () => {
   }) => {
     try {
       if (customer.name.trim() && customer.phone.trim()) {
-        const contacts = await saveCustomerContact({
+        const contacts = await upsertCustomerContact({
           name: customer.name,
           phone: customer.phone,
         });
@@ -409,7 +413,7 @@ export const POSScreen: React.FC = () => {
 
     setSavingContact(true);
     try {
-      const contacts = await saveCustomerContact({
+      const contacts = await upsertCustomerContact({
         name: customerDraft.name,
         phone: customerDraft.phone,
       });
@@ -424,6 +428,30 @@ export const POSScreen: React.FC = () => {
     } finally {
       setSavingContact(false);
     }
+  };
+
+  const handleDeleteSavedContact = (contact: SavedCustomerContact) => {
+    Alert.alert(
+      'Hapus kontak',
+      `Hapus ${contact.name} dari daftar customer tersimpan?`,
+      [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Hapus',
+          style: 'destructive',
+          onPress: async () => {
+            const contacts = await deleteCustomerContact(contact.id);
+            setSavedContacts(contacts);
+
+            if (customer.name === contact.name && customer.phone === contact.phone) {
+              setCustomer({ name: '', phone: '' });
+            }
+
+            setIsAddingCustomer(contacts.length === 0);
+          },
+        },
+      ]
+    );
   };
 
   const scanPrinters = async () => {
@@ -809,14 +837,15 @@ export const POSScreen: React.FC = () => {
                     style={styles.customerModalHeaderAction}
                     onPress={() => {
                       if (isAddingCustomer && savedContacts.length > 0) {
+                        setCustomerDraft({
+                          name: customer.name,
+                          phone: customer.phone,
+                        });
                         setIsAddingCustomer(false);
                         return;
                       }
 
-                      setCustomerDraft({
-                        name: customer.name,
-                        phone: customer.phone,
-                      });
+                      setCustomerDraft({ name: '', phone: '' });
                       setIsAddingCustomer(true);
                     }}
                   >
@@ -907,6 +936,11 @@ export const POSScreen: React.FC = () => {
                         >
                           No Telepon
                         </Text>
+                        <Text
+                          style={[styles.savedContactsHeaderText, styles.savedContactActionColumn]}
+                        >
+                          Aksi
+                        </Text>
                       </View>
                       <ScrollView
                         showsVerticalScrollIndicator={false}
@@ -914,7 +948,7 @@ export const POSScreen: React.FC = () => {
                         contentContainerStyle={styles.savedContactsTableBody}
                       >
                         {savedContacts.map((contact, index) => (
-                          <TouchableOpacity
+                          <View
                             key={contact.id}
                             style={[
                               styles.savedContactRow,
@@ -923,20 +957,36 @@ export const POSScreen: React.FC = () => {
                                 customer.phone === contact.phone &&
                                 styles.savedContactRowActive,
                             ]}
-                            onPress={() => handleSelectSavedContact(contact)}
                           >
-                            <Text
-                              style={[styles.savedContactName, styles.savedContactNameColumn]}
-                              numberOfLines={1}
+                            <TouchableOpacity
+                              style={styles.savedContactSelectArea}
+                              onPress={() => handleSelectSavedContact(contact)}
                             >
-                              {contact.name}
-                            </Text>
-                            <Text
-                              style={[styles.savedContactPhone, styles.savedContactPhoneColumn]}
-                            >
-                              {contact.phone}
-                            </Text>
-                          </TouchableOpacity>
+                              <Text
+                                style={[styles.savedContactName, styles.savedContactNameColumn]}
+                                numberOfLines={1}
+                              >
+                                {contact.name}
+                              </Text>
+                              <Text
+                                style={[styles.savedContactPhone, styles.savedContactPhoneColumn]}
+                              >
+                                {contact.phone}
+                              </Text>
+                            </TouchableOpacity>
+                            <View style={styles.savedContactActions}>
+                              <TouchableOpacity
+                                style={styles.savedContactDeleteButton}
+                                onPress={() => handleDeleteSavedContact(contact)}
+                              >
+                                <MaterialCommunityIcons
+                                  name="trash-can-outline"
+                                  size={16}
+                                  color={COLORS.error}
+                                />
+                              </TouchableOpacity>
+                            </View>
+                          </View>
                         ))}
                       </ScrollView>
                     </View>
@@ -1291,6 +1341,7 @@ const styles = StyleSheet.create({
   customerModalCard: {
     width: '100%',
     maxWidth: 460,
+    maxHeight: '82%',
     backgroundColor: COLORS.white,
     borderRadius: RADIUS.lg,
     padding: 18,
@@ -1390,6 +1441,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   savedContactsTableBody: {
+    maxHeight: 260,
     paddingBottom: 2,
   },
   savedContactRow: {
@@ -1413,6 +1465,31 @@ const styles = StyleSheet.create({
   },
   savedContactPhoneColumn: {
     flex: 1,
+    paddingRight: 12,
+  },
+  savedContactActionColumn: {
+    width: 88,
+    textAlign: 'center',
+  },
+  savedContactSelectArea: {
+    flex: 1,
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  savedContactActions: {
+    width: 88,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  savedContactDeleteButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   savedContactName: {
     fontSize: 13,

@@ -4,6 +4,8 @@ import { SavedCustomerContact } from '../types';
 const CUSTOMER_CONTACTS_KEY = 'restopos:customer-contacts';
 
 const normalizePhone = (value: string) => value.replace(/[^\d+]/g, '').trim();
+const sortContacts = (contacts: SavedCustomerContact[]) =>
+  [...contacts].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
 export const getSavedCustomerContacts = async (): Promise<SavedCustomerContact[]> => {
   const raw = await AsyncStorage.getItem(CUSTOMER_CONTACTS_KEY);
@@ -17,7 +19,8 @@ export const getSavedCustomerContacts = async (): Promise<SavedCustomerContact[]
   }
 };
 
-export const saveCustomerContact = async (input: {
+export const upsertCustomerContact = async (input: {
+  id?: string;
   name: string;
   phone: string;
 }): Promise<SavedCustomerContact[]> => {
@@ -31,21 +34,34 @@ export const saveCustomerContact = async (input: {
   const existing = await getSavedCustomerContacts();
   const now = new Date().toISOString();
   const nextContact: SavedCustomerContact = {
-    id: `contact-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    id: input.id ?? `contact-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name,
     phone,
     updatedAt: now,
   };
 
-  const merged = [
+  const merged = sortContacts([
     nextContact,
     ...existing.filter(
       (contact) =>
-        normalizePhone(contact.phone) !== phone && contact.name.trim().toLowerCase() !== name.toLowerCase()
+        contact.id !== input.id &&
+        normalizePhone(contact.phone) !== phone &&
+        contact.name.trim().toLowerCase() !== name.toLowerCase()
     ),
-  ].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  ]);
 
   await AsyncStorage.setItem(CUSTOMER_CONTACTS_KEY, JSON.stringify(merged));
   return merged;
 };
 
+export const saveCustomerContact = async (input: {
+  name: string;
+  phone: string;
+}): Promise<SavedCustomerContact[]> => upsertCustomerContact(input);
+
+export const deleteCustomerContact = async (id: string): Promise<SavedCustomerContact[]> => {
+  const existing = await getSavedCustomerContacts();
+  const filtered = existing.filter((contact) => contact.id !== id);
+  await AsyncStorage.setItem(CUSTOMER_CONTACTS_KEY, JSON.stringify(filtered));
+  return filtered;
+};
