@@ -95,7 +95,7 @@ export const MoreScreen: React.FC = () => {
   }, [paidOrders]);
 
   const refreshSavedTarget = React.useCallback(async () => {
-    const saved = await getSavedThermalTarget();
+    const saved = await getSavedThermalTarget('main');
     if (!saved) {
       setSavedDeviceName('');
       setSavedTarget('');
@@ -131,7 +131,7 @@ export const MoreScreen: React.FC = () => {
 
   const connectPrinter = async (device: ThermalDevice) => {
     try {
-      await saveThermalTarget(device.target, device.deviceName);
+      await saveThermalTarget('main', device.target, device.deviceName);
       await refreshSavedTarget();
       Alert.alert('Printer tersimpan', `${device.deviceName} siap dipakai.`);
     } catch (error) {
@@ -140,7 +140,7 @@ export const MoreScreen: React.FC = () => {
   };
 
   const disconnectPrinter = async () => {
-    await clearSavedThermalTarget();
+    await clearSavedThermalTarget('main');
     await refreshSavedTarget();
     Alert.alert('Printer dilepas', 'Koneksi printer thermal dihapus.');
   };

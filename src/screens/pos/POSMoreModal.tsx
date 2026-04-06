@@ -2,7 +2,12 @@ import React from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { COLORS, RADIUS } from '../../constants/theme';
-import { ThermalDevice } from '../../services/thermalPrinterService';
+import {
+  getThermalPrinterRoleLabel,
+  SavedThermalTarget,
+  ThermalDevice,
+  ThermalPrinterRole,
+} from '../../services/thermalPrinterService';
 import { ProductMixSection, TillSummaryReport } from '../../utils/reporting';
 import {
   CALENDAR_WEEKDAYS,
@@ -26,6 +31,8 @@ type ReportCalendarMonth = {
   days: Array<CalendarDay | null>;
 };
 
+const PRINTER_ROLES: ThermalPrinterRole[] = ['main', 'dine-in', 'takeaway'];
+
 interface POSMoreModalProps {
   visible: boolean;
   moreSection: MoreSection | null;
@@ -35,8 +42,7 @@ interface POSMoreModalProps {
   productMix: ProductMixSection[];
   thermalAvailable: boolean;
   thermalDisabledMessage: string;
-  savedDeviceName: string;
-  savedTarget: string;
+  savedPrinters: Record<ThermalPrinterRole, SavedThermalTarget | null>;
   loadingPrinter: boolean;
   devices: ThermalDevice[];
   onClose: () => void;
@@ -47,9 +53,9 @@ interface POSMoreModalProps {
   onChangeReportMonth: (offset: number) => void;
   onPrintReport: (section: PrintableReportSection) => void | Promise<void>;
   onScanPrinters: () => void | Promise<void>;
-  onDisconnectPrinter: () => void | Promise<void>;
-  onConnectPrinter: (device: ThermalDevice) => void | Promise<void>;
-  onRunBluetoothCheck: (modeLabel: 'Dine In' | 'Take Away') => void | Promise<void>;
+  onDisconnectPrinter: (role: ThermalPrinterRole) => void | Promise<void>;
+  onConnectPrinter: (device: ThermalDevice, role: ThermalPrinterRole) => void | Promise<void>;
+  onRunBluetoothCheck: (role: ThermalPrinterRole) => void | Promise<void>;
   onOpenLogout: () => void;
 }
 
@@ -71,8 +77,7 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
   productMix,
   thermalAvailable,
   thermalDisabledMessage,
-  savedDeviceName,
-  savedTarget,
+  savedPrinters,
   loadingPrinter,
   devices,
   onClose,
@@ -89,6 +94,34 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
   onOpenLogout,
 }) => {
   const productMixTotals = getProductMixTotals(productMix);
+
+  const renderSavedPrinterAssignments = () => (
+    <View style={styles.moreAssignmentGrid}>
+      {PRINTER_ROLES.map((role) => {
+        const savedPrinter = savedPrinters[role];
+        return (
+          <View key={role} style={styles.morePrinterAssignmentCard}>
+            <Text style={styles.morePrinterAssignmentTitle}>{getThermalPrinterRoleLabel(role)}</Text>
+            <Text style={styles.morePrinterAssignmentValue}>
+              {savedPrinter?.deviceName ?? 'Belum tersambung'}
+            </Text>
+            <Text style={styles.morePrinterAssignmentTarget}>
+              {savedPrinter?.target ?? 'Pilih printer dari hasil scan di bawah.'}
+            </Text>
+            {savedPrinter ? (
+              <TouchableOpacity
+                style={[styles.moreDangerButton, styles.moreAssignmentDisconnectButton]}
+                onPress={() => onDisconnectPrinter(role)}
+                disabled={!thermalAvailable}
+              >
+                <Text style={styles.moreDangerButtonText}>Disconnect</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        );
+      })}
+    </View>
+  );
 
   const renderReportCalendar = () => (
     <View style={styles.moreContentWrap}>
@@ -343,7 +376,7 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
             Status module: {thermalAvailable ? 'ready' : 'disabled on web'}
           </Text>
           <Text style={styles.moreContentSub}>
-            Printer aktif: {savedDeviceName ? `${savedDeviceName} (${savedTarget})` : 'Belum ada'}
+            Kasir memakai printer `Main Cashier`, sedangkan kitchen dipisah ke `Dine In` dan `Take Away`.
           </Text>
           {!thermalAvailable ? (
             <View style={styles.moreDisabledCard}>
@@ -351,6 +384,8 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
               <Text style={styles.moreDisabledText}>{thermalDisabledMessage}</Text>
             </View>
           ) : null}
+
+          {renderSavedPrinterAssignments()}
 
           <View style={styles.moreActionRow}>
             <TouchableOpacity
@@ -361,13 +396,6 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
               <Text style={styles.morePrimaryButtonText}>
                 {loadingPrinter ? 'Scanning...' : 'Scan Bluetooth'}
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.moreDangerButton, !thermalAvailable && styles.moreActionDisabled]}
-              onPress={onDisconnectPrinter}
-              disabled={!thermalAvailable}
-            >
-              <Text style={styles.moreDangerButtonText}>Disconnect</Text>
             </TouchableOpacity>
           </View>
 
@@ -386,13 +414,20 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
                     <Text style={styles.moreTableLabel}>{device.deviceName}</Text>
                     <Text style={styles.moreDeviceTarget}>{device.target}</Text>
                   </View>
-                  <TouchableOpacity
-                    style={[styles.moreSecondaryButton, !thermalAvailable && styles.moreActionDisabled]}
-                    onPress={() => onConnectPrinter(device)}
-                    disabled={!thermalAvailable}
-                  >
-                    <Text style={styles.moreSecondaryButtonText}>Connect</Text>
-                  </TouchableOpacity>
+                  <View style={styles.moreDeviceActions}>
+                    {PRINTER_ROLES.map((role) => (
+                      <TouchableOpacity
+                        key={`${device.target}-${role}`}
+                        style={[styles.moreDeviceAssignButton, !thermalAvailable && styles.moreActionDisabled]}
+                        onPress={() => onConnectPrinter(device, role)}
+                        disabled={!thermalAvailable}
+                      >
+                        <Text style={styles.moreDeviceAssignButtonText}>
+                          {role === 'main' ? 'Main' : role === 'dine-in' ? 'Dine In' : 'Take Away'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 </View>
               ))}
             </View>
@@ -406,28 +441,28 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
         <Text style={styles.moreContentHeading}>Cek Koneksi Bluetooth</Text>
         <Text style={styles.moreContentSub}>
           {thermalAvailable
-            ? 'Gunakan tombol ini untuk test printer dine in dan take away.'
+            ? 'Gunakan tombol ini untuk test printer kasir, kitchen dine in, dan kitchen take away.'
             : thermalDisabledMessage}
         </Text>
 
         <View style={styles.moreCheckGrid}>
-          <TouchableOpacity
-            style={[styles.moreCheckCard, !thermalAvailable && styles.moreCheckCardDisabled]}
-            onPress={() => onRunBluetoothCheck('Dine In')}
-            disabled={!thermalAvailable}
-          >
-            <Text style={styles.moreCheckTitle}>Dine In</Text>
-            <Text style={styles.moreCheckText}>Cetak test koneksi untuk dine in.</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.moreCheckCard, !thermalAvailable && styles.moreCheckCardDisabled]}
-            onPress={() => onRunBluetoothCheck('Take Away')}
-            disabled={!thermalAvailable}
-          >
-            <Text style={styles.moreCheckTitle}>Take Away</Text>
-            <Text style={styles.moreCheckText}>Cetak test koneksi untuk take away.</Text>
-          </TouchableOpacity>
+          {PRINTER_ROLES.map((role) => (
+            <TouchableOpacity
+              key={role}
+              style={[styles.moreCheckCard, !thermalAvailable && styles.moreCheckCardDisabled]}
+              onPress={() => onRunBluetoothCheck(role)}
+              disabled={!thermalAvailable}
+            >
+              <Text style={styles.moreCheckTitle}>{getThermalPrinterRoleLabel(role)}</Text>
+              <Text style={styles.moreCheckText}>
+                {role === 'main'
+                  ? 'Cetak test koneksi untuk printer utama cashier.'
+                  : role === 'dine-in'
+                    ? 'Cetak test koneksi untuk kitchen dine in.'
+                    : 'Cetak test koneksi untuk kitchen take away.'}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
       </View>
     );
@@ -750,6 +785,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
   },
+  moreAssignmentGrid: {
+    gap: 10,
+  },
+  morePrinterAssignmentCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 14,
+    gap: 6,
+  },
+  morePrinterAssignmentTitle: {
+    fontSize: 13,
+    color: COLORS.textGray,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  morePrinterAssignmentValue: {
+    fontSize: 16,
+    color: COLORS.textDark,
+    fontWeight: '800',
+  },
+  morePrinterAssignmentTarget: {
+    fontSize: 12,
+    color: COLORS.textGray,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  moreAssignmentDisconnectButton: {
+    alignSelf: 'flex-start',
+    marginTop: 6,
+    height: 36,
+  },
   morePrimaryButton: {
     height: 42,
     borderRadius: RADIUS.sm,
@@ -807,6 +875,27 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
   },
+  moreDeviceActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 8,
+    maxWidth: 220,
+  },
+  moreDeviceAssignButton: {
+    minWidth: 64,
+    height: 34,
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.lightPurple,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  moreDeviceAssignButtonText: {
+    fontSize: 11,
+    color: COLORS.primaryPurple,
+    fontWeight: '800',
+  },
   moreDeviceTarget: {
     fontSize: 12,
     color: COLORS.textGray,
@@ -814,10 +903,11 @@ const styles = StyleSheet.create({
   },
   moreCheckGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
   },
   moreCheckCard: {
-    flex: 1,
+    width: '48%',
     minHeight: 140,
     backgroundColor: COLORS.white,
     borderRadius: RADIUS.md,

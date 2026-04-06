@@ -1,7 +1,11 @@
 import * as Print from 'expo-print';
 import { CartItem, Order } from '../types';
 import { formatPrice } from '../data/mockData';
-import { isThermalFeatureEnabled, printThermalText } from './thermalPrinterService';
+import {
+  isThermalFeatureEnabled,
+  printThermalText,
+  ThermalPrinterRole,
+} from './thermalPrinterService';
 
 const STORE_NAME = 'RestoPOS';
 
@@ -14,6 +18,9 @@ interface KitchenPrintMeta {
   cashierName?: string;
   restaurantName?: string;
 }
+
+const getKitchenPrinterRole = (order: Order): ThermalPrinterRole =>
+  order.orderType === 'dine-in' ? 'dine-in' : 'takeaway';
 
 const getOrderTypeLabel = (order: Order) => {
   if (order.orderType === 'dine-in') return 'Dine In';
@@ -314,13 +321,16 @@ const asKitchenTicketHtml = (order: Order, meta?: KitchenPrintMeta) => `
   </html>
 `;
 
-const tryEscPosThermalPrint = async (lines: string[]): Promise<boolean> => {
+const tryEscPosThermalPrint = async (
+  lines: string[],
+  role: ThermalPrinterRole
+): Promise<boolean> => {
   if (!isThermalFeatureEnabled()) {
     return false;
   }
 
   try {
-    await printThermalText(lines);
+    await printThermalText(lines, role);
     return true;
   } catch {
     return false;
@@ -362,7 +372,7 @@ export const printCashierReceipt = async (
       `Products ${getProductCount(order)}`,
       'Terima kasih',
     ];
-    const thermalPrinted = await tryEscPosThermalPrint(thermalLines);
+    const thermalPrinted = await tryEscPosThermalPrint(thermalLines, 'main');
     if (thermalPrinted) return;
   }
 
@@ -401,7 +411,10 @@ export const printKitchenTicket = async (
         return detailLines;
       }),
     ];
-    const thermalPrinted = await tryEscPosThermalPrint(thermalLines);
+    const thermalPrinted = await tryEscPosThermalPrint(
+      thermalLines,
+      getKitchenPrinterRole(order)
+    );
     if (thermalPrinted) return;
   }
 

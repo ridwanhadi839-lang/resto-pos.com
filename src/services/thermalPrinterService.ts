@@ -1,10 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-const PRINTER_TARGET_KEY = 'restopos:thermal:target';
-const PRINTER_NAME_KEY = 'restopos:thermal:name';
-
 export type PrinterTransport = 'bluetooth' | 'lan';
+export type ThermalPrinterRole = 'main' | 'dine-in' | 'takeaway';
 
 export interface ThermalDevice {
   target: string;
@@ -12,6 +10,30 @@ export interface ThermalDevice {
   ipAddress?: string;
   macAddress?: string;
 }
+
+export interface SavedThermalTarget {
+  role: ThermalPrinterRole;
+  target: string;
+  deviceName: string;
+}
+
+const PRINTER_STORAGE_KEYS: Record<
+  ThermalPrinterRole,
+  { target: string; name: string }
+> = {
+  main: {
+    target: 'restopos:thermal:main:target',
+    name: 'restopos:thermal:main:name',
+  },
+  'dine-in': {
+    target: 'restopos:thermal:dine-in:target',
+    name: 'restopos:thermal:dine-in:name',
+  },
+  takeaway: {
+    target: 'restopos:thermal:takeaway:target',
+    name: 'restopos:thermal:takeaway:name',
+  },
+};
 
 const loadEscPosModule = () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -34,6 +56,12 @@ export const isThermalModuleAvailable = (): boolean => {
 
 export const isThermalFeatureEnabled = (): boolean =>
   Platform.OS !== 'web' && isThermalModuleAvailable();
+
+export const getThermalPrinterRoleLabel = (role: ThermalPrinterRole) => {
+  if (role === 'main') return 'Main Cashier';
+  if (role === 'dine-in') return 'Kitchen Dine In';
+  return 'Kitchen Take Away';
+};
 
 export const discoverThermalPrinters = async (
   transport: PrinterTransport,
@@ -77,39 +105,78 @@ export const discoverThermalPrinters = async (
   return discovered;
 };
 
-export const saveThermalTarget = async (target: string, deviceName: string) => {
+export const saveThermalTarget = async (
+  role: ThermalPrinterRole,
+  target: string,
+  deviceName: string
+) => {
+  const storage = PRINTER_STORAGE_KEYS[role];
   await Promise.all([
-    AsyncStorage.setItem(PRINTER_TARGET_KEY, target),
-    AsyncStorage.setItem(PRINTER_NAME_KEY, deviceName),
+    AsyncStorage.setItem(storage.target, target),
+    AsyncStorage.setItem(storage.name, deviceName),
   ]);
 };
 
-export const getSavedThermalTarget = async () => {
+export const getSavedThermalTarget = async (role: ThermalPrinterRole) => {
+  const storage = PRINTER_STORAGE_KEYS[role];
   const [target, deviceNameRaw] = await Promise.all([
-    AsyncStorage.getItem(PRINTER_TARGET_KEY),
-    AsyncStorage.getItem(PRINTER_NAME_KEY),
+    AsyncStorage.getItem(storage.target),
+    AsyncStorage.getItem(storage.name),
   ]);
-  const deviceName = deviceNameRaw ?? 'RestoPOS Thermal';
+  const deviceName = deviceNameRaw ?? `RestoPOS ${getThermalPrinterRoleLabel(role)}`;
   if (!target) return null;
-  return { target, deviceName };
+  return { role, target, deviceName };
 };
 
-export const clearSavedThermalTarget = async () => {
+export const getSavedThermalTargets = async () => {
+  const entries = await Promise.all(
+    (Object.keys(PRINTER_STORAGE_KEYS) as ThermalPrinterRole[]).map((role) =>
+      getSavedThermalTarget(role)
+    )
+  );
+
+  return entries.reduce<Record<ThermalPrinterRole, SavedThermalTarget | null>>(
+    (acc, entry, index) => {
+      const role = (Object.keys(PRINTER_STORAGE_KEYS) as ThermalPrinterRole[])[index];
+      acc[role] = entry;
+      return acc;
+    },
+    {
+      main: null,
+      'dine-in': null,
+      takeaway: null,
+    }
+  );
+};
+
+export const clearSavedThermalTarget = async (role: ThermalPrinterRole) => {
+  const storage = PRINTER_STORAGE_KEYS[role];
   await Promise.all([
-    AsyncStorage.removeItem(PRINTER_TARGET_KEY),
-    AsyncStorage.removeItem(PRINTER_NAME_KEY),
+    AsyncStorage.removeItem(storage.target),
+    AsyncStorage.removeItem(storage.name),
   ]);
 };
 
-export const printThermalText = async (lines: string[]) => {
+const resolvePrinterForRole = async (role: ThermalPrinterRole) => {
+  const exactPrinter = await getSavedThermalTarget(role);
+  if (exactPrinter) return exactPrinter;
+
+  if (role !== 'main') {
+    return getSavedThermalTarget('main');
+  }
+
+  return null;
+};
+
+export const printThermalText = async (lines: string[], role: ThermalPrinterRole = 'main') => {
   if (!isThermalFeatureEnabled()) {
     throw new Error(getThermalFeatureMessage());
   }
 
   const escpos = loadEscPosModule();
-  const saved = await getSavedThermalTarget();
+  const saved = await resolvePrinterForRole(role);
   if (!saved) {
-    throw new Error('Belum ada thermal printer yang tersambung.');
+    throw new Error(`Belum ada thermal printer yang tersambung untuk ${getThermalPrinterRoleLabel(role)}.`);
   }
 
   const printer = new escpos.Printer({
@@ -135,5 +202,5 @@ export const printThermalTestReceipt = async () => {
     `${new Date().toLocaleString('id-ID')}`,
     '------------------------------',
     'Jika ini tercetak, koneksi OK.',
-  ]);
+  ], 'main');
 };

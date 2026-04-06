@@ -34,12 +34,15 @@ import { getSavedCustomerContacts, saveCustomerContact } from '../services/custo
 import {
   clearSavedThermalTarget,
   discoverThermalPrinters,
-  getSavedThermalTarget,
+  getSavedThermalTargets,
   getThermalFeatureMessage,
+  getThermalPrinterRoleLabel,
   isThermalFeatureEnabled,
   printThermalText,
+  SavedThermalTarget,
   saveThermalTarget,
   ThermalDevice,
+  ThermalPrinterRole,
 } from '../services/thermalPrinterService';
 import { CartItem, SavedCustomerContact } from '../types';
 import {
@@ -55,6 +58,12 @@ import { POSMoreModal } from './pos/POSMoreModal';
 import { POSVoidModal } from './pos/POSVoidModal';
 import { usePOSCatalog } from './pos/usePOSCatalog';
 import { usePOSReports } from './pos/usePOSReports';
+
+const EMPTY_SAVED_PRINTERS: Record<ThermalPrinterRole, SavedThermalTarget | null> = {
+  main: null,
+  'dine-in': null,
+  takeaway: null,
+};
 
 export const POSScreen: React.FC = () => {
   const route = useRoute<any>();
@@ -146,8 +155,9 @@ export const POSScreen: React.FC = () => {
   const [isLoggingOut, setLoggingOut] = useState(false);
   const [moreSection, setMoreSection] = useState<MoreSection | null>(null);
   const [devices, setDevices] = useState<ThermalDevice[]>([]);
-  const [savedDeviceName, setSavedDeviceName] = useState('');
-  const [savedTarget, setSavedTarget] = useState('');
+  const [savedPrinters, setSavedPrinters] = useState<
+    Record<ThermalPrinterRole, SavedThermalTarget | null>
+  >(EMPTY_SAVED_PRINTERS);
   const [loadingPrinter, setLoadingPrinter] = useState(false);
   const [isOpenTillModalVisible, setOpenTillModalVisible] = useState(false);
   const [openTillAmountInput, setOpenTillAmountInput] = useState('');
@@ -182,23 +192,14 @@ export const POSScreen: React.FC = () => {
 
     loadSavedContacts();
   }, []);
-
-
-  const refreshSavedTarget = useCallback(async () => {
-    const saved = await getSavedThermalTarget();
-    if (!saved) {
-      setSavedDeviceName('');
-      setSavedTarget('');
-      return;
-    }
-
-    setSavedDeviceName(saved.deviceName);
-    setSavedTarget(saved.target);
+  const refreshSavedPrinters = useCallback(async () => {
+    const saved = await getSavedThermalTargets();
+    setSavedPrinters(saved);
   }, []);
 
   useEffect(() => {
-    refreshSavedTarget();
-  }, [refreshSavedTarget]);
+    refreshSavedPrinters();
+  }, [refreshSavedPrinters]);
 
   useEffect(() => {
     if (route.name !== 'Home') return;
@@ -305,7 +306,8 @@ export const POSScreen: React.FC = () => {
       await printCashierReceipt(
         receiptPreviewOrder,
         user?.name ?? 'Cashier',
-        user?.restaurantName
+        user?.restaurantName,
+        true
       );
       setReceiptPreviewVisible(false);
       Alert.alert('Print kasir', 'Invoice kasir berhasil dikirim ke printer.');
@@ -420,20 +422,23 @@ export const POSScreen: React.FC = () => {
     }
   };
 
-  const connectPrinter = async (device: ThermalDevice) => {
+  const connectPrinter = async (device: ThermalDevice, role: ThermalPrinterRole) => {
     try {
-      await saveThermalTarget(device.target, device.deviceName);
-      await refreshSavedTarget();
-      Alert.alert('Printer tersimpan', `${device.deviceName} siap digunakan.`);
+      await saveThermalTarget(role, device.target, device.deviceName);
+      await refreshSavedPrinters();
+      Alert.alert(
+        'Printer tersimpan',
+        `${getThermalPrinterRoleLabel(role)} sekarang memakai ${device.deviceName}.`
+      );
     } catch (error) {
       Alert.alert('Gagal', error instanceof Error ? error.message : 'Gagal menyimpan printer.');
     }
   };
 
-  const disconnectPrinter = async () => {
-    await clearSavedThermalTarget();
-    await refreshSavedTarget();
-    Alert.alert('Printer dilepas', 'Koneksi printer bluetooth dihapus.');
+  const disconnectPrinter = async (role: ThermalPrinterRole) => {
+    await clearSavedThermalTarget(role);
+    await refreshSavedPrinters();
+    Alert.alert('Printer dilepas', `Koneksi ${getThermalPrinterRoleLabel(role)} dihapus.`);
   };
 
   const handlePrintReport = async (section: PrintableReportSection) => {
@@ -454,21 +459,22 @@ export const POSScreen: React.FC = () => {
     }
   };
 
-  const runBluetoothCheck = async (modeLabel: 'Dine In' | 'Take Away') => {
+  const runBluetoothCheck = async (role: ThermalPrinterRole) => {
     if (!thermalAvailable) {
       Alert.alert('Bluetooth tidak tersedia', thermalDisabledMessage);
       return;
     }
 
+    const roleLabel = getThermalPrinterRoleLabel(role);
     try {
       await printThermalText([
         'RestoPOS',
-        `Bluetooth Check - ${modeLabel}`,
+        `Bluetooth Check - ${roleLabel}`,
         `${new Date().toLocaleString('id-ID')}`,
         '------------------------------',
-        `${modeLabel} printer connection OK`,
-      ]);
-      Alert.alert('Berhasil', `Test koneksi bluetooth ${modeLabel} berhasil dikirim.`);
+        `${roleLabel} printer connection OK`,
+      ], role);
+      Alert.alert('Berhasil', `Test koneksi bluetooth ${roleLabel} berhasil dikirim.`);
     } catch (error) {
       Alert.alert(
         'Cek koneksi gagal',
@@ -491,7 +497,7 @@ export const POSScreen: React.FC = () => {
 
     setPrintingKitchen(true);
     try {
-      await printKitchenTicket(kitchenPreviewOrder, false, {
+      await printKitchenTicket(kitchenPreviewOrder, true, {
         cashierName: user?.name ?? 'Cashier',
         restaurantName: user?.restaurantName,
       });
@@ -944,8 +950,7 @@ export const POSScreen: React.FC = () => {
         productMix={productMix}
         thermalAvailable={thermalAvailable}
         thermalDisabledMessage={thermalDisabledMessage}
-        savedDeviceName={savedDeviceName}
-        savedTarget={savedTarget}
+        savedPrinters={savedPrinters}
         loadingPrinter={loadingPrinter}
         devices={devices}
         onClose={handleCloseMoreModal}
