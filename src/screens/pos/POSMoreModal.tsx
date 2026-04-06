@@ -3,10 +3,12 @@ import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'rea
 
 import { COLORS, RADIUS } from '../../constants/theme';
 import {
+  getActiveThermalRoles,
   getThermalPrinterRoleLabel,
   SavedThermalTarget,
   ThermalDevice,
   ThermalPrinterRole,
+  ThermalPrinterSetupMode,
 } from '../../services/thermalPrinterService';
 import { ProductMixSection, TillSummaryReport } from '../../utils/reporting';
 import {
@@ -31,8 +33,6 @@ type ReportCalendarMonth = {
   days: Array<CalendarDay | null>;
 };
 
-const PRINTER_ROLES: ThermalPrinterRole[] = ['main', 'dine-in', 'takeaway'];
-
 interface POSMoreModalProps {
   visible: boolean;
   moreSection: MoreSection | null;
@@ -42,6 +42,8 @@ interface POSMoreModalProps {
   productMix: ProductMixSection[];
   thermalAvailable: boolean;
   thermalDisabledMessage: string;
+  printerSetupMode: ThermalPrinterSetupMode;
+  activePrinterRoles: ThermalPrinterRole[];
   savedPrinters: Record<ThermalPrinterRole, SavedThermalTarget | null>;
   loadingPrinter: boolean;
   devices: ThermalDevice[];
@@ -53,6 +55,7 @@ interface POSMoreModalProps {
   onChangeReportMonth: (offset: number) => void;
   onPrintReport: (section: PrintableReportSection) => void | Promise<void>;
   onScanPrinters: () => void | Promise<void>;
+  onChangePrinterSetupMode: (mode: ThermalPrinterSetupMode) => void | Promise<void>;
   onDisconnectPrinter: (role: ThermalPrinterRole) => void | Promise<void>;
   onConnectPrinter: (device: ThermalDevice, role: ThermalPrinterRole) => void | Promise<void>;
   onRunBluetoothCheck: (role: ThermalPrinterRole) => void | Promise<void>;
@@ -77,6 +80,8 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
   productMix,
   thermalAvailable,
   thermalDisabledMessage,
+  printerSetupMode,
+  activePrinterRoles,
   savedPrinters,
   loadingPrinter,
   devices,
@@ -88,20 +93,24 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
   onChangeReportMonth,
   onPrintReport,
   onScanPrinters,
+  onChangePrinterSetupMode,
   onDisconnectPrinter,
   onConnectPrinter,
   onRunBluetoothCheck,
   onOpenLogout,
 }) => {
   const productMixTotals = getProductMixTotals(productMix);
+  const bluetoothCheckRoles = getActiveThermalRoles(printerSetupMode);
 
   const renderSavedPrinterAssignments = () => (
     <View style={styles.moreAssignmentGrid}>
-      {PRINTER_ROLES.map((role) => {
+      {activePrinterRoles.map((role) => {
         const savedPrinter = savedPrinters[role];
         return (
           <View key={role} style={styles.morePrinterAssignmentCard}>
-            <Text style={styles.morePrinterAssignmentTitle}>{getThermalPrinterRoleLabel(role)}</Text>
+            <Text style={styles.morePrinterAssignmentTitle}>
+              {getThermalPrinterRoleLabel(role, printerSetupMode)}
+            </Text>
             <Text style={styles.morePrinterAssignmentValue}>
               {savedPrinter?.deviceName ?? 'Belum tersambung'}
             </Text>
@@ -376,7 +385,7 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
             Status module: {thermalAvailable ? 'ready' : 'disabled on web'}
           </Text>
           <Text style={styles.moreContentSub}>
-            Kasir memakai printer `Main Cashier`, sedangkan kitchen dipisah ke `Dine In` dan `Take Away`.
+            Pilih dulu berapa printer yang dipakai, lalu hubungkan setiap printer ke role yang aktif.
           </Text>
           {!thermalAvailable ? (
             <View style={styles.moreDisabledCard}>
@@ -384,6 +393,38 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
               <Text style={styles.moreDisabledText}>{thermalDisabledMessage}</Text>
             </View>
           ) : null}
+
+          <View style={styles.moreModeSelectorWrap}>
+            <Text style={styles.moreModeSelectorLabel}>Jumlah printer aktif</Text>
+            <View style={styles.moreModeSelectorRow}>
+              {[1, 2, 3].map((mode) => (
+                <TouchableOpacity
+                  key={mode}
+                  style={[
+                    styles.moreModeChip,
+                    printerSetupMode === mode && styles.moreModeChipActive,
+                  ]}
+                  onPress={() => onChangePrinterSetupMode(mode as ThermalPrinterSetupMode)}
+                >
+                  <Text
+                    style={[
+                      styles.moreModeChipText,
+                      printerSetupMode === mode && styles.moreModeChipTextActive,
+                    ]}
+                  >
+                    {mode} Printer
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.moreModeDescription}>
+              {printerSetupMode === 1
+                ? 'Semua receipt kasir dan kitchen akan memakai Main Cashier.'
+                : printerSetupMode === 2
+                  ? 'Main Cashier dipakai untuk pembayaran, sedangkan semua kitchen ticket memakai Kitchen Shared.'
+                  : 'Main Cashier dipakai untuk pembayaran, kitchen dine in dan take away masing-masing memakai printer sendiri.'}
+            </Text>
+          </View>
 
           {renderSavedPrinterAssignments()}
 
@@ -415,7 +456,7 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
                     <Text style={styles.moreDeviceTarget}>{device.target}</Text>
                   </View>
                   <View style={styles.moreDeviceActions}>
-                    {PRINTER_ROLES.map((role) => (
+                    {activePrinterRoles.map((role) => (
                       <TouchableOpacity
                         key={`${device.target}-${role}`}
                         style={[styles.moreDeviceAssignButton, !thermalAvailable && styles.moreActionDisabled]}
@@ -423,7 +464,13 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
                         disabled={!thermalAvailable}
                       >
                         <Text style={styles.moreDeviceAssignButtonText}>
-                          {role === 'main' ? 'Main' : role === 'dine-in' ? 'Dine In' : 'Take Away'}
+                          {role === 'main'
+                            ? 'Main'
+                            : role === 'dine-in' && printerSetupMode === 2
+                              ? 'Kitchen'
+                              : role === 'dine-in'
+                                ? 'Dine In'
+                                : 'Take Away'}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -446,18 +493,22 @@ export const POSMoreModal: React.FC<POSMoreModalProps> = ({
         </Text>
 
         <View style={styles.moreCheckGrid}>
-          {PRINTER_ROLES.map((role) => (
+          {bluetoothCheckRoles.map((role) => (
             <TouchableOpacity
               key={role}
               style={[styles.moreCheckCard, !thermalAvailable && styles.moreCheckCardDisabled]}
               onPress={() => onRunBluetoothCheck(role)}
               disabled={!thermalAvailable}
             >
-              <Text style={styles.moreCheckTitle}>{getThermalPrinterRoleLabel(role)}</Text>
+              <Text style={styles.moreCheckTitle}>
+                {getThermalPrinterRoleLabel(role, printerSetupMode)}
+              </Text>
               <Text style={styles.moreCheckText}>
                 {role === 'main'
                   ? 'Cetak test koneksi untuk printer utama cashier.'
-                  : role === 'dine-in'
+                  : role === 'dine-in' && printerSetupMode === 2
+                    ? 'Cetak test koneksi untuk kitchen shared.'
+                    : role === 'dine-in'
                     ? 'Cetak test koneksi untuk kitchen dine in.'
                     : 'Cetak test koneksi untuk kitchen take away.'}
               </Text>
@@ -784,6 +835,53 @@ const styles = StyleSheet.create({
   moreActionRow: {
     flexDirection: 'row',
     gap: 10,
+  },
+  moreModeSelectorWrap: {
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 14,
+    gap: 10,
+  },
+  moreModeSelectorLabel: {
+    fontSize: 12,
+    color: COLORS.textGray,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  moreModeSelectorRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  moreModeChip: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  moreModeChipActive: {
+    borderColor: COLORS.primaryPurple,
+    backgroundColor: COLORS.lightPurple,
+  },
+  moreModeChipText: {
+    fontSize: 12,
+    color: COLORS.textDark,
+    fontWeight: '700',
+  },
+  moreModeChipTextActive: {
+    color: COLORS.primaryPurple,
+  },
+  moreModeDescription: {
+    fontSize: 12,
+    color: COLORS.textGray,
+    fontWeight: '600',
+    lineHeight: 18,
   },
   moreAssignmentGrid: {
     gap: 10,

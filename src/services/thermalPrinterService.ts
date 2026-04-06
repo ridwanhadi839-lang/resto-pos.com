@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 
 export type PrinterTransport = 'bluetooth' | 'lan';
 export type ThermalPrinterRole = 'main' | 'dine-in' | 'takeaway';
+export type ThermalPrinterSetupMode = 1 | 2 | 3;
 
 export interface ThermalDevice {
   target: string;
@@ -34,6 +35,7 @@ const PRINTER_STORAGE_KEYS: Record<
     name: 'restopos:thermal:takeaway:name',
   },
 };
+const PRINTER_SETUP_MODE_KEY = 'restopos:thermal:setup-mode';
 
 const loadEscPosModule = () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -57,10 +59,22 @@ export const isThermalModuleAvailable = (): boolean => {
 export const isThermalFeatureEnabled = (): boolean =>
   Platform.OS !== 'web' && isThermalModuleAvailable();
 
-export const getThermalPrinterRoleLabel = (role: ThermalPrinterRole) => {
+export const getThermalPrinterRoleLabel = (
+  role: ThermalPrinterRole,
+  setupMode: ThermalPrinterSetupMode = 3
+) => {
   if (role === 'main') return 'Main Cashier';
+  if (role === 'dine-in' && setupMode === 2) return 'Kitchen Shared';
   if (role === 'dine-in') return 'Kitchen Dine In';
   return 'Kitchen Take Away';
+};
+
+export const getActiveThermalRoles = (
+  setupMode: ThermalPrinterSetupMode
+): ThermalPrinterRole[] => {
+  if (setupMode === 1) return ['main'];
+  if (setupMode === 2) return ['main', 'dine-in'];
+  return ['main', 'dine-in', 'takeaway'];
 };
 
 export const discoverThermalPrinters = async (
@@ -157,9 +171,30 @@ export const clearSavedThermalTarget = async (role: ThermalPrinterRole) => {
   ]);
 };
 
+export const getSavedThermalSetupMode = async (): Promise<ThermalPrinterSetupMode> => {
+  const raw = await AsyncStorage.getItem(PRINTER_SETUP_MODE_KEY);
+  if (raw === '1' || raw === '2' || raw === '3') {
+    return Number(raw) as ThermalPrinterSetupMode;
+  }
+
+  return 3;
+};
+
+export const saveThermalSetupMode = async (setupMode: ThermalPrinterSetupMode) => {
+  await AsyncStorage.setItem(PRINTER_SETUP_MODE_KEY, String(setupMode));
+};
+
 const resolvePrinterForRole = async (role: ThermalPrinterRole) => {
-  const exactPrinter = await getSavedThermalTarget(role);
-  if (exactPrinter) return exactPrinter;
+  const setupMode = await getSavedThermalSetupMode();
+  const normalizedRole =
+    setupMode === 1 ? 'main' : setupMode === 2 && role !== 'main' ? 'dine-in' : role;
+  const exactPrinter = await getSavedThermalTarget(normalizedRole);
+  if (exactPrinter) {
+    return {
+      ...exactPrinter,
+      role,
+    };
+  }
 
   if (role !== 'main') {
     return getSavedThermalTarget('main');

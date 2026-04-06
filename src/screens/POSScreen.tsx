@@ -34,15 +34,19 @@ import { getSavedCustomerContacts, saveCustomerContact } from '../services/custo
 import {
   clearSavedThermalTarget,
   discoverThermalPrinters,
+  getSavedThermalSetupMode,
   getSavedThermalTargets,
+  getActiveThermalRoles,
   getThermalFeatureMessage,
   getThermalPrinterRoleLabel,
   isThermalFeatureEnabled,
   printThermalText,
   SavedThermalTarget,
+  saveThermalSetupMode,
   saveThermalTarget,
   ThermalDevice,
   ThermalPrinterRole,
+  ThermalPrinterSetupMode,
 } from '../services/thermalPrinterService';
 import { CartItem, SavedCustomerContact } from '../types';
 import {
@@ -158,12 +162,14 @@ export const POSScreen: React.FC = () => {
   const [savedPrinters, setSavedPrinters] = useState<
     Record<ThermalPrinterRole, SavedThermalTarget | null>
   >(EMPTY_SAVED_PRINTERS);
+  const [printerSetupMode, setPrinterSetupMode] = useState<ThermalPrinterSetupMode>(3);
   const [loadingPrinter, setLoadingPrinter] = useState(false);
   const [isOpenTillModalVisible, setOpenTillModalVisible] = useState(false);
   const [openTillAmountInput, setOpenTillAmountInput] = useState('');
 
   const thermalAvailable = isThermalFeatureEnabled();
   const thermalDisabledMessage = getThermalFeatureMessage();
+  const activePrinterRoles = getActiveThermalRoles(printerSetupMode);
   const hasCustomerInfo = Boolean(customer.name.trim() || customer.phone.trim());
   const {
     selectedReportDate,
@@ -193,8 +199,12 @@ export const POSScreen: React.FC = () => {
     loadSavedContacts();
   }, []);
   const refreshSavedPrinters = useCallback(async () => {
-    const saved = await getSavedThermalTargets();
+    const [saved, savedMode] = await Promise.all([
+      getSavedThermalTargets(),
+      getSavedThermalSetupMode(),
+    ]);
     setSavedPrinters(saved);
+    setPrinterSetupMode(savedMode);
   }, []);
 
   useEffect(() => {
@@ -428,7 +438,7 @@ export const POSScreen: React.FC = () => {
       await refreshSavedPrinters();
       Alert.alert(
         'Printer tersimpan',
-        `${getThermalPrinterRoleLabel(role)} sekarang memakai ${device.deviceName}.`
+        `${getThermalPrinterRoleLabel(role, printerSetupMode)} sekarang memakai ${device.deviceName}.`
       );
     } catch (error) {
       Alert.alert('Gagal', error instanceof Error ? error.message : 'Gagal menyimpan printer.');
@@ -438,7 +448,25 @@ export const POSScreen: React.FC = () => {
   const disconnectPrinter = async (role: ThermalPrinterRole) => {
     await clearSavedThermalTarget(role);
     await refreshSavedPrinters();
-    Alert.alert('Printer dilepas', `Koneksi ${getThermalPrinterRoleLabel(role)} dihapus.`);
+    Alert.alert(
+      'Printer dilepas',
+      `Koneksi ${getThermalPrinterRoleLabel(role, printerSetupMode)} dihapus.`
+    );
+  };
+
+  const changePrinterSetupMode = async (mode: ThermalPrinterSetupMode) => {
+    try {
+      await saveThermalSetupMode(mode);
+      setPrinterSetupMode(mode);
+      const modeLabel =
+        mode === 1 ? '1 printer' : mode === 2 ? '2 printer (cashier + kitchen shared)' : '3 printer';
+      Alert.alert('Mode printer disimpan', `Bluetooth printer sekarang memakai mode ${modeLabel}.`);
+    } catch (error) {
+      Alert.alert(
+        'Mode printer gagal disimpan',
+        error instanceof Error ? error.message : 'Coba simpan ulang mode printer.'
+      );
+    }
   };
 
   const handlePrintReport = async (section: PrintableReportSection) => {
@@ -465,7 +493,7 @@ export const POSScreen: React.FC = () => {
       return;
     }
 
-    const roleLabel = getThermalPrinterRoleLabel(role);
+    const roleLabel = getThermalPrinterRoleLabel(role, printerSetupMode);
     try {
       await printThermalText([
         'RestoPOS',
@@ -950,6 +978,8 @@ export const POSScreen: React.FC = () => {
         productMix={productMix}
         thermalAvailable={thermalAvailable}
         thermalDisabledMessage={thermalDisabledMessage}
+        printerSetupMode={printerSetupMode}
+        activePrinterRoles={activePrinterRoles}
         savedPrinters={savedPrinters}
         loadingPrinter={loadingPrinter}
         devices={devices}
@@ -961,6 +991,7 @@ export const POSScreen: React.FC = () => {
         onChangeReportMonth={changeReportMonth}
         onPrintReport={handlePrintReport}
         onScanPrinters={scanPrinters}
+        onChangePrinterSetupMode={changePrinterSetupMode}
         onDisconnectPrinter={disconnectPrinter}
         onConnectPrinter={connectPrinter}
         onRunBluetoothCheck={runBluetoothCheck}
