@@ -2,15 +2,36 @@ const express = require('express');
 
 const {
   createOrder,
+  createExternalOrder,
   createVoidAuditLog,
   getOrders,
   updateOrderStatus,
 } = require('../services/order.service');
 const { requireAuthSession } = require('../middleware/auth-session');
-const { writeActionRateLimiter } = require('../middleware/rate-limiters');
+const {
+  externalOrderRateLimiter,
+  writeActionRateLimiter,
+} = require('../middleware/rate-limiters');
+const { requireIntegrationApiKey } = require('../middleware/integration-api-key');
+const { requireRestaurantContext } = require('../middleware/restaurant-context');
 const { asyncHandler } = require('../utils/async-handler');
 
 const router = express.Router();
+
+router.post(
+  '/external',
+  externalOrderRateLimiter,
+  requireRestaurantContext,
+  requireIntegrationApiKey,
+  asyncHandler(async (req, res) => {
+    const order = await createExternalOrder(req.restaurantCode, req.body || {});
+
+    res.status(201).json({
+      ok: true,
+      data: order,
+    });
+  })
+);
 
 router.use(requireAuthSession);
 

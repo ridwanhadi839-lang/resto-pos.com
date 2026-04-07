@@ -5,6 +5,11 @@ node_modules/
 .env
 .env.*
 !.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+*.local
+*.secret
 
 # Expo / React Native local state
 .expo/

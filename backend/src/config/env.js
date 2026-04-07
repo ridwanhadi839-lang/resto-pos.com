@@ -16,6 +16,7 @@ const env = {
   supabaseServiceRoleKey: normalizeEnvValue(process.env.SUPABASE_SERVICE_ROLE_KEY),
   jwtSecret: normalizeEnvValue(process.env.JWT_SECRET),
   jwtExpiresIn: normalizeEnvValue(process.env.JWT_EXPIRES_IN) || '12h',
+  integrationApiKey: normalizeEnvValue(process.env.INTEGRATION_API_KEY),
 };
 
 const validateEnvConfig = () => {

@@ -4,6 +4,16 @@ const http = require('node:http');
 const dotenv = require('dotenv');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
+process.env.INTEGRATION_API_KEY = process.env.INTEGRATION_API_KEY || 'test-integration-key';
+
+const testRestaurantCode = process.env.TEST_LOGIN_RESTAURANT_CODE;
+const testLoginPin = process.env.TEST_LOGIN_PIN;
+
+if (!testRestaurantCode || !testLoginPin) {
+  throw new Error(
+    'TEST_LOGIN_RESTAURANT_CODE dan TEST_LOGIN_PIN wajib diisi di backend/.env untuk menjalankan backend/tests/api.test.js'
+  );
+}
 
 const app = require('../src/app');
 const { supabaseAdmin } = require('../src/config/supabase');
@@ -59,14 +69,15 @@ const requestJson = async (pathname, options = {}) => {
 const login = async () => {
   if (authSession) return authSession;
 
+  // Kredensial test dibaca dari env lokal agar tidak terlihat di source code.
   const { response, json } = await requestJson('/api/auth/pin-login', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      restaurantCode: 'resto-a',
-      pin: '445566',
+      restaurantCode: testRestaurantCode,
+      pin: testLoginPin,
     }),
   });
 
@@ -91,7 +102,7 @@ const testLogin = async () => {
   const session = await login();
 
   assert.ok(session.user);
-  assert.equal(session.user.restaurantCode, 'resto-a');
+  assert.equal(session.user.restaurantCode, testRestaurantCode);
   assert.match(session.user.role, /cashier|supervisor|kitchen/);
 };
 
@@ -110,6 +121,7 @@ const testCreateOrder = async () => {
 
   const payload = {
     orderNumber,
+    orderNote: 'Tanpa sambal, saus terpisah',
     items: [
       {
         id: `cart-${Date.now()}`,
@@ -121,7 +133,8 @@ const testCreateOrder = async () => {
           categoryId: product.categoryId,
         },
         quantity: 1,
-        options: [],
+        options: ['Less ice', 'Extra sauce'],
+        note: 'Pisahkan sambal',
       },
     ],
     subtotal: price,
@@ -152,6 +165,9 @@ const testCreateOrder = async () => {
   assert.equal(createResult.json?.ok, true);
   assert.equal(createResult.json?.data?.orderNumber, orderNumber);
   assert.equal(createResult.json?.data?.status, 'paid');
+  assert.equal(createResult.json?.data?.orderNote, 'Tanpa sambal, saus terpisah');
+  assert.deepEqual(createResult.json?.data?.items?.[0]?.options, ['Less ice', 'Extra sauce']);
+  assert.equal(createResult.json?.data?.items?.[0]?.note, 'Pisahkan sambal');
   createdOrderIds.push(createResult.json.data.id);
 
   const ordersResult = await requestJson('/api/orders', {
@@ -201,11 +217,122 @@ const testCreateOrder = async () => {
   assert.equal(voidAuditResult.json?.ok, true);
 };
 
+const testCreateExternalOrder = async () => {
+  const authHeaders = await getAuthHeaders();
+  const catalogResult = await requestJson('/api/catalog', {
+    headers: authHeaders,
+  });
+
+  assert.equal(catalogResult.response.status, 200);
+  assert.ok(catalogResult.json?.data?.products?.length > 0);
+
+  const product = catalogResult.json.data.products[0];
+  const suffix = Date.now();
+  const price = Number(product.price);
+
+  const payload = {
+    orderNumber: `EXT-${suffix}`,
+    sourceApp: 'grabfood',
+    externalOrderId: `GF-${suffix}`,
+    items: [
+      {
+        id: `cart-external-${suffix}`,
+        product: {
+          id: product.id,
+          name: product.name,
+          price,
+          imageUrl: product.imageUrl ?? null,
+          categoryId: product.categoryId,
+        },
+        quantity: 1,
+        options: ['No onion'],
+        note: 'Paket aplikasi partner',
+      },
+    ],
+    orderNote: 'Driver tunggu di depan',
+    subtotal: price,
+    discount: 0,
+    tax: 0,
+    total: price,
+    splitBillCount: 1,
+    payments: [],
+    status: 'pending',
+    orderType: 'delivery',
+    customer: {
+      name: 'Customer External',
+      phone: '081234567890',
+      receiptNo: `RCPT-EXT-${suffix}`,
+    },
+    externalPayload: {
+      channel: 'grabfood',
+      rawOrderNumber: `GF-${suffix}`,
+    },
+  };
+
+  const createResult = await requestJson('/api/orders/external', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-restaurant-code': testRestaurantCode,
+      'x-integration-api-key': process.env.INTEGRATION_API_KEY,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  assert.equal(createResult.response.status, 201);
+  assert.equal(createResult.json?.ok, true);
+  assert.equal(createResult.json?.data?.orderSource, 'external');
+  assert.equal(createResult.json?.data?.sourceApp, payload.sourceApp);
+  assert.equal(createResult.json?.data?.externalOrderId, payload.externalOrderId);
+  assert.equal(createResult.json?.data?.orderNote, payload.orderNote);
+  assert.deepEqual(createResult.json?.data?.items?.[0]?.options, ['No onion']);
+  createdOrderIds.push(createResult.json.data.id);
+};
+
+const testDeleteCustomerContact = async () => {
+  const authHeaders = await getAuthHeaders();
+  const suffix = Date.now();
+
+  const createContactResult = await requestJson('/api/customer-contacts', {
+    method: 'POST',
+    headers: {
+      ...authHeaders,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: `Delete Contact ${suffix}`,
+      phone: `055${String(suffix).slice(-7)}`,
+    }),
+  });
+
+  assert.equal(createContactResult.response.status, 201);
+  assert.equal(createContactResult.json?.ok, true);
+
+  const createdContact = createContactResult.json?.data?.find(
+    (contact) => contact.name === `Delete Contact ${suffix}`
+  );
+
+  assert.ok(createdContact?.id);
+
+  const deleteContactResult = await requestJson(`/api/customer-contacts/${createdContact.id}`, {
+    method: 'DELETE',
+    headers: authHeaders,
+  });
+
+  assert.equal(deleteContactResult.response.status, 200);
+  assert.equal(deleteContactResult.json?.ok, true);
+  assert.ok(
+    !(deleteContactResult.json?.data ?? []).some((contact) => contact.id === createdContact.id)
+  );
+};
+
 const run = async () => {
   try {
     await startServer();
     await testLogin();
     await testCreateOrder();
+    await testCreateExternalOrder();
+    await testDeleteCustomerContact();
     console.log('backend/tests/api.test.js: OK');
   } finally {
     await cleanupCreatedOrders();

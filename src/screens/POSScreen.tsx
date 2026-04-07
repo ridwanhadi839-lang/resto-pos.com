@@ -157,6 +157,7 @@ export const POSScreen: React.FC = () => {
   const [editingCartItem, setEditingCartItem] = useState<CartItem | null>(null);
   const [savedContacts, setSavedContacts] = useState<SavedCustomerContact[]>([]);
   const [isSavingContact, setSavingContact] = useState(false);
+  const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
   const [isCustomerModalVisible, setCustomerModalVisible] = useState(false);
   const [isAddingCustomer, setIsAddingCustomer] = useState(false);
   const [customerDraft, setCustomerDraft] = useState({ name: '', phone: '' });
@@ -450,35 +451,25 @@ export const POSScreen: React.FC = () => {
     }
   };
 
-  const handleDeleteSavedContact = (contact: SavedCustomerContact) => {
-    Alert.alert(
-      'Hapus kontak',
-      `Hapus ${contact.name} dari daftar customer tersimpan?`,
-      [
-        { text: 'Batal', style: 'cancel' },
-        {
-          text: 'Hapus',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const contacts = await deleteCustomerContact(contact.id);
-              setSavedContacts(contacts);
+  const handleDeleteSavedContact = async (contact: SavedCustomerContact) => {
+    setDeletingContactId(contact.id);
+    try {
+      const contacts = await deleteCustomerContact(contact.id);
+      setSavedContacts(contacts);
 
-              if (customer.name === contact.name && customer.phone === contact.phone) {
-                setCustomer({ name: '', phone: '' });
-              }
+      if (customer.name === contact.name && customer.phone === contact.phone) {
+        setCustomer({ name: '', phone: '' });
+      }
 
-              setIsAddingCustomer(contacts.length === 0);
-            } catch (error) {
-              Alert.alert(
-                'Hapus gagal',
-                error instanceof Error ? error.message : 'Customer belum berhasil dihapus.'
-              );
-            }
-          },
-        },
-      ]
-    );
+      setIsAddingCustomer(contacts.length === 0);
+    } catch (error) {
+      Alert.alert(
+        'Hapus gagal',
+        error instanceof Error ? error.message : 'Customer belum berhasil dihapus.'
+      );
+    } finally {
+      setDeletingContactId(null);
+    }
   };
 
   const scanPrinters = async () => {
@@ -1005,8 +996,11 @@ export const POSScreen: React.FC = () => {
                               <TouchableOpacity
                                 style={styles.savedContactDeleteButton}
                                 onPress={() => handleDeleteSavedContact(contact)}
+                                disabled={deletingContactId === contact.id}
                               >
-                                <Text style={styles.savedContactDeleteText}>Hapus</Text>
+                                <Text style={styles.savedContactDeleteText}>
+                                  {deletingContactId === contact.id ? '...' : 'Hapus'}
+                                </Text>
                               </TouchableOpacity>
                             </View>
                           </View>

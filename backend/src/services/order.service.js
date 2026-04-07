@@ -7,10 +7,135 @@ const { logDiscountApplied, logOrderStatusChanged, logVoidAudit } = require('./a
 const VALID_ORDER_STATUSES = new Set(['pending', 'paid', 'sent_to_kitchen']);
 const VALID_ORDER_TYPES = new Set(['dine-in', 'takeaway', 'delivery']);
 const VALID_PAYMENT_METHODS = new Set(['cash', 'qr', 'visa']);
+const VALID_ORDER_SOURCES = new Set(['pos', 'external']);
+
+const sanitizeString = (value) => {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+};
+
+const sanitizeOptionalString = (value) => {
+  const normalized = sanitizeString(value);
+  return normalized.length > 0 ? normalized : null;
+};
+
+const sanitizeItemOptions = (value) => {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean);
+};
+
+const sanitizeJsonObject = (value) => {
+  if (!value || Array.isArray(value) || typeof value !== 'object') {
+    return {};
+  }
+
+  return value;
+};
+
+const INTEGRATION_SCHEMA_COLUMNS = [
+  'order_source',
+  'source_app',
+  'external_order_id',
+  'external_payload',
+  'order_note',
+  'options',
+  'note',
+];
+
+const isIntegrationSchemaError = (error) => {
+  const message = `${error?.message || ''} ${error?.details || ''}`;
+  return (
+    (error?.code === 'PGRST204' || error?.code === '42703') &&
+    INTEGRATION_SCHEMA_COLUMNS.some((columnName) => message.includes(columnName))
+  );
+};
+
+const BASE_ORDER_SELECT = `
+  id,
+  order_number,
+  subtotal,
+  discount_amount,
+  tax_amount,
+  total,
+  status,
+  order_type,
+  customer_name,
+  customer_phone,
+  receipt_no,
+  table_number,
+  split_bill_count,
+  created_at,
+  order_items (
+    id,
+    qty,
+    price,
+    product:products (
+      id,
+      name,
+      price,
+      image_url,
+      category_id
+    )
+  ),
+  payments (
+    id,
+    method,
+    amount
+  )
+`;
+
+const EXTENDED_ORDER_SELECT = `
+  id,
+  order_number,
+  order_source,
+  source_app,
+  external_order_id,
+  external_payload,
+  subtotal,
+  discount_amount,
+  tax_amount,
+  total,
+  status,
+  order_type,
+  order_note,
+  customer_name,
+  customer_phone,
+  receipt_no,
+  table_number,
+  split_bill_count,
+  created_at,
+  order_items (
+    id,
+    qty,
+    price,
+    options,
+    note,
+    product:products (
+      id,
+      name,
+      price,
+      image_url,
+      category_id
+    )
+  ),
+  payments (
+    id,
+    method,
+    amount
+  )
+`;
 
 const mapDbOrder = (row) => ({
   id: row.id,
   orderNumber: row.order_number,
+  orderNote: row.order_note || undefined,
+  orderSource: row.order_source || 'pos',
+  sourceApp: row.source_app || undefined,
+  externalOrderId: row.external_order_id || undefined,
+  externalPayload: sanitizeJsonObject(row.external_payload),
   items: (row.order_items || []).map((item) => {
     const productCandidate = Array.isArray(item.product) ? item.product[0] : item.product;
     return {
@@ -23,7 +148,8 @@ const mapDbOrder = (row) => ({
         categoryId: productCandidate?.category_id || 'unknown',
       },
       quantity: item.qty,
-      options: [],
+      options: sanitizeItemOptions(item.options),
+      note: item.note || undefined,
     };
   }),
   subtotal: Number(row.subtotal),
@@ -48,6 +174,20 @@ const mapDbOrder = (row) => ({
   synced: true,
 });
 
+const hydrateOrderWithPayload = (order, payload) => ({
+  ...order,
+  orderNote: payload.orderNote ?? order.orderNote,
+  orderSource: payload.orderSource ?? order.orderSource ?? 'pos',
+  sourceApp: payload.sourceApp ?? order.sourceApp,
+  externalOrderId: payload.externalOrderId ?? order.externalOrderId,
+  externalPayload: payload.externalPayload ?? order.externalPayload ?? {},
+  items: order.items.map((item, index) => ({
+    ...item,
+    options: payload.items?.[index]?.options ?? item.options ?? [],
+    note: payload.items?.[index]?.note ?? item.note,
+  })),
+});
+
 const ensureProductsBelongToRestaurant = async (restaurantId, items) => {
   const productIds = [...new Set(items.map((item) => item.product.id))];
 
@@ -66,59 +206,34 @@ const ensureProductsBelongToRestaurant = async (restaurantId, items) => {
   }
 };
 
-const fetchOrdersQuery = (restaurantId) => {
+const fetchOrdersQuery = (restaurantId, includeIntegrationFields = true) => {
   requireSupabaseAdmin(supabaseAdmin);
 
   return supabaseAdmin
     .from('orders')
-    .select(
-      `
-      id,
-      order_number,
-      subtotal,
-      discount_amount,
-      tax_amount,
-      total,
-      status,
-      order_type,
-      customer_name,
-      customer_phone,
-      receipt_no,
-      table_number,
-      split_bill_count,
-      created_at,
-      order_items (
-        id,
-        qty,
-        price,
-        product:products (
-          id,
-          name,
-          price,
-          image_url,
-          category_id
-        )
-      ),
-      payments (
-        id,
-        method,
-        amount
-      )
-    `
-    )
+    .select(includeIntegrationFields ? EXTENDED_ORDER_SELECT : BASE_ORDER_SELECT)
     .eq('restaurant_id', restaurantId)
     .order('created_at', { ascending: false });
 };
 
-const getOrders = async (restaurantCode) => {
-  const restaurant = await requireRestaurantByCode(restaurantCode);
-  const { data, error } = await fetchOrdersQuery(restaurant.id);
+const fetchOrderRows = async (restaurantId, includeIntegrationFields = true) => {
+  const { data, error } = await fetchOrdersQuery(restaurantId, includeIntegrationFields);
+
+  if (error && includeIntegrationFields && isIntegrationSchemaError(error)) {
+    return fetchOrderRows(restaurantId, false);
+  }
 
   if (error) {
     throw new AppError('Gagal mengambil data order.', 500, error);
   }
 
-  return (data || []).map(mapDbOrder);
+  return data || [];
+};
+
+const getOrders = async (restaurantCode) => {
+  const restaurant = await requireRestaurantByCode(restaurantCode);
+  const data = await fetchOrderRows(restaurant.id);
+  return data.map(mapDbOrder);
 };
 
 const ensureValidOrderPayload = (payload) => {
@@ -138,6 +253,30 @@ const ensureValidOrderPayload = (payload) => {
 
   if (!Array.isArray(payload.payments)) {
     throw new AppError('Payload payments harus berupa array.', 400);
+  }
+
+  const orderSource = payload.orderSource || 'pos';
+  if (!VALID_ORDER_SOURCES.has(orderSource)) {
+    throw new AppError('Sumber order tidak valid.', 400);
+  }
+
+  if (payload.orderSource === 'external') {
+    ensureNonEmptyString(payload.sourceApp, 'sourceApp wajib diisi untuk order external.');
+    ensureNonEmptyString(
+      payload.externalOrderId,
+      'externalOrderId wajib diisi untuk order external.'
+    );
+  }
+
+  if (
+    payload.externalPayload != null &&
+    (typeof payload.externalPayload !== 'object' || Array.isArray(payload.externalPayload))
+  ) {
+    throw new AppError('externalPayload harus berupa object JSON.', 400);
+  }
+
+  if (payload.orderNote != null && typeof payload.orderNote !== 'string') {
+    throw new AppError('orderNote harus berupa text.', 400);
   }
 
   const numberFields = [
@@ -166,6 +305,21 @@ const ensureValidOrderPayload = (payload) => {
     if (!Number.isFinite(Number(item.product.price)) || Number(item.product.price) < 0) {
       throw new AppError('Harga item tidak valid.', 400);
     }
+
+    if (item.options != null && !Array.isArray(item.options)) {
+      throw new AppError('Options item harus berupa array.', 400);
+    }
+
+    if (
+      Array.isArray(item.options) &&
+      item.options.some((option) => typeof option !== 'string')
+    ) {
+      throw new AppError('Semua options item harus berupa text.', 400);
+    }
+
+    if (item.note != null && typeof item.note !== 'string') {
+      throw new AppError('Note item harus berupa text.', 400);
+    }
   }
 
   for (const payment of payload.payments) {
@@ -179,43 +333,145 @@ const ensureValidOrderPayload = (payload) => {
   }
 };
 
+const getOrderById = async (restaurantId, orderId) => {
+  let { data, error } = await fetchOrdersQuery(restaurantId, true).eq('id', orderId).maybeSingle();
+
+  if (error && isIntegrationSchemaError(error)) {
+    ({ data, error } = await fetchOrdersQuery(restaurantId, false).eq('id', orderId).maybeSingle());
+  }
+
+  if (error) {
+    throw new AppError('Gagal memuat ulang order.', 500, error);
+  }
+
+  if (!data) {
+    throw new AppError('Order tidak ditemukan setelah disimpan.', 404);
+  }
+
+  return mapDbOrder(data);
+};
+
+const findExistingExternalOrder = async (restaurantId, sourceApp, externalOrderId) => {
+  const { data, error } = await supabaseAdmin
+    .from('orders')
+    .select('id')
+    .eq('restaurant_id', restaurantId)
+    .eq('source_app', sourceApp)
+    .eq('external_order_id', externalOrderId)
+    .maybeSingle();
+
+  if (error && isIntegrationSchemaError(error)) {
+    return null;
+  }
+
+  if (error) {
+    throw new AppError('Gagal memeriksa external order yang sudah ada.', 500, error);
+  }
+
+  return data;
+};
+
+const buildOrderInsertPayload = (restaurantId, payload, includeIntegrationFields = true) => ({
+  restaurant_id: restaurantId,
+  order_number: payload.orderNumber.trim(),
+  ...(includeIntegrationFields
+    ? {
+        order_source: payload.orderSource || 'pos',
+        source_app: sanitizeOptionalString(payload.sourceApp),
+        external_order_id: sanitizeOptionalString(payload.externalOrderId),
+        external_payload: sanitizeJsonObject(payload.externalPayload),
+        order_note: sanitizeOptionalString(payload.orderNote),
+      }
+    : {}),
+  subtotal: Number(payload.subtotal),
+  discount_amount: Number(payload.discount),
+  tax_amount: Number(payload.tax),
+  total: Number(payload.total),
+  status: payload.status,
+  order_type: payload.orderType,
+  customer_name: payload.customer?.name?.trim() || null,
+  customer_phone: payload.customer?.phone?.trim() || null,
+  receipt_no: payload.customer?.receiptNo?.trim() || null,
+  table_number: payload.tableNumber ? String(payload.tableNumber).trim() : null,
+  split_bill_count: Number(payload.splitBillCount),
+  cashier_user_id: payload.cashierUserId || null,
+});
+
+const insertOrderRow = async (restaurantId, payload, includeIntegrationFields = true) => {
+  const { data, error } = await supabaseAdmin
+    .from('orders')
+    .insert(buildOrderInsertPayload(restaurantId, payload, includeIntegrationFields))
+    .select('id')
+    .single();
+
+  if (error && includeIntegrationFields && isIntegrationSchemaError(error)) {
+    return insertOrderRow(restaurantId, payload, false);
+  }
+
+  if (error || !data) {
+    throw new AppError('Gagal membuat order.', 400, error);
+  }
+
+  return {
+    row: data,
+    persistedIntegrationFields: includeIntegrationFields,
+  };
+};
+
+const buildOrderItemsPayload = (orderId, items, includeIntegrationFields = true) =>
+  items.map((item) => ({
+    order_id: orderId,
+    product_id: item.product.id,
+    qty: Number(item.quantity),
+    price: Number(item.product.price),
+    ...(includeIntegrationFields
+      ? {
+          options: sanitizeItemOptions(item.options),
+          note: sanitizeOptionalString(item.note),
+        }
+      : {}),
+  }));
+
+const insertOrderItems = async (orderId, items, includeIntegrationFields = true) => {
+  const payload = buildOrderItemsPayload(orderId, items, includeIntegrationFields);
+  if (payload.length === 0) return includeIntegrationFields;
+
+  const { error } = await supabaseAdmin.from('order_items').insert(payload);
+
+  if (error && includeIntegrationFields && isIntegrationSchemaError(error)) {
+    return insertOrderItems(orderId, items, false);
+  }
+
+  if (error) {
+    throw new AppError('Order dibuat, tapi item order gagal disimpan.', 400, error);
+  }
+
+  return includeIntegrationFields;
+};
+
 const createOrder = async (restaurantCode, payload, actor = null) => {
   requireSupabaseAdmin(supabaseAdmin);
   ensureValidOrderPayload(payload);
   const restaurant = await requireRestaurantByCode(restaurantCode);
   await ensureProductsBelongToRestaurant(restaurant.id, payload.items);
+  const orderSource = payload.orderSource || 'pos';
+  const sourceApp = sanitizeOptionalString(payload.sourceApp);
+  const externalOrderId = sanitizeOptionalString(payload.externalOrderId);
 
-  const { data: orderRow, error: orderError } = await supabaseAdmin
-    .from('orders')
-    .insert({
-      restaurant_id: restaurant.id,
-      order_number: payload.orderNumber.trim(),
-      subtotal: Number(payload.subtotal),
-      discount_amount: Number(payload.discount),
-      tax_amount: Number(payload.tax),
-      total: Number(payload.total),
-      status: payload.status,
-      order_type: payload.orderType,
-      customer_name: payload.customer?.name?.trim() || null,
-      customer_phone: payload.customer?.phone?.trim() || null,
-      receipt_no: payload.customer?.receiptNo?.trim() || null,
-      table_number: payload.tableNumber ? String(payload.tableNumber).trim() : null,
-      split_bill_count: Number(payload.splitBillCount),
-      cashier_user_id: payload.cashierUserId || null,
-    })
-    .select('id')
-    .single();
+  if (orderSource === 'external' && sourceApp && externalOrderId) {
+    const existingExternalOrder = await findExistingExternalOrder(
+      restaurant.id,
+      sourceApp,
+      externalOrderId
+    );
 
-  if (orderError || !orderRow) {
-    throw new AppError('Gagal membuat order.', 400, orderError);
+    if (existingExternalOrder?.id) {
+      return getOrderById(restaurant.id, existingExternalOrder.id);
+    }
   }
 
-  const orderItemsPayload = payload.items.map((item) => ({
-    order_id: orderRow.id,
-    product_id: item.product.id,
-    qty: Number(item.quantity),
-    price: Number(item.product.price),
-  }));
+  const { row: orderRow, persistedIntegrationFields: orderFieldsPersisted } =
+    await insertOrderRow(restaurant.id, payload, true);
 
   const paymentsPayload = payload.payments
     .filter((payment) => Number(payment.amount) > 0)
@@ -225,13 +481,7 @@ const createOrder = async (restaurantCode, payload, actor = null) => {
       amount: Number(payment.amount),
     }));
 
-  if (orderItemsPayload.length > 0) {
-    const { error: orderItemsError } = await supabaseAdmin.from('order_items').insert(orderItemsPayload);
-
-    if (orderItemsError) {
-      throw new AppError('Order dibuat, tapi item order gagal disimpan.', 400, orderItemsError);
-    }
-  }
+  const itemFieldsPersisted = await insertOrderItems(orderRow.id, payload.items, true);
 
   if (paymentsPayload.length > 0) {
     const { error: paymentsError } = await supabaseAdmin.from('payments').insert(paymentsPayload);
@@ -241,12 +491,7 @@ const createOrder = async (restaurantCode, payload, actor = null) => {
     }
   }
 
-  const orders = await getOrders(restaurantCode);
-  const createdOrder = orders.find((order) => order.id === orderRow.id);
-
-  if (!createdOrder) {
-    throw new AppError('Order tersimpan, tapi gagal dimuat ulang.', 500);
-  }
+  const createdOrder = await getOrderById(restaurant.id, orderRow.id);
 
   await logDiscountApplied({
     restaurantId: restaurant.id,
@@ -256,8 +501,29 @@ const createOrder = async (restaurantCode, payload, actor = null) => {
     payload,
   });
 
+  if (!orderFieldsPersisted || !itemFieldsPersisted) {
+    return hydrateOrderWithPayload(createdOrder, payload);
+  }
+
   return createdOrder;
 };
+
+const createExternalOrder = async (restaurantCode, payload) =>
+  // External order selalu dipaksa lewat jalur backend ini supaya validasi,
+  // dedup external_order_id, dan audit tetap terjadi di satu tempat.
+  createOrder(
+    restaurantCode,
+    {
+      ...payload,
+      orderSource: 'external',
+      sourceApp: sanitizeOptionalString(payload.sourceApp),
+      externalOrderId: sanitizeOptionalString(payload.externalOrderId),
+      externalPayload: sanitizeJsonObject(payload.externalPayload || payload),
+      status: payload.status || 'pending',
+      payments: Array.isArray(payload.payments) ? payload.payments : [],
+    },
+    null
+  );
 
 const updateOrderStatus = async (restaurantCode, orderId, status, actor = null) => {
   requireSupabaseAdmin(supabaseAdmin);
@@ -311,6 +577,7 @@ const createVoidAuditLog = async (restaurantCode, payload, actor = null) =>
 module.exports = {
   getOrders,
   createOrder,
+  createExternalOrder,
   updateOrderStatus,
   createVoidAuditLog,
 };

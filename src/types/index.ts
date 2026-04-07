@@ -81,6 +81,10 @@ export interface Order {
   orderNumber: string;
   items: CartItem[];
   orderNote?: string;
+  orderSource?: 'pos' | 'external';
+  sourceApp?: string;
+  externalOrderId?: string;
+  externalPayload?: Record<string, unknown>;
   subtotal: number;
   discount: number;
   tax: number;
@@ -112,6 +116,10 @@ export interface CreateOrderInput {
   orderNumber: string;
   items: CartItem[];
   orderNote?: string;
+  orderSource?: 'pos' | 'external';
+  sourceApp?: string;
+  externalOrderId?: string;
+  externalPayload?: Record<string, unknown>;
   subtotal: number;
   discount: number;
   tax: number;

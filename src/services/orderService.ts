@@ -15,12 +15,17 @@ import {
 type DbOrderRow = {
   id: string;
   order_number: string;
+  order_source?: 'pos' | 'external' | null;
+  source_app?: string | null;
+  external_order_id?: string | null;
+  external_payload?: Record<string, unknown> | null;
   subtotal: number;
   discount_amount: number;
   tax_amount: number;
   total: number;
   status: OrderStatus;
   order_type: 'dine-in' | 'takeaway' | 'delivery';
+  order_note: string | null;
   customer_name: string | null;
   customer_phone: string | null;
   receipt_no: string | null;
@@ -32,6 +37,8 @@ type DbOrderRow = {
         id: string;
         qty: number;
         price: number;
+        options?: string[] | null;
+        note?: string | null;
         product:
           | {
               id: string;
@@ -66,6 +73,40 @@ export const hasOrderRealtimeSync = !isApiConfigured && isSupabaseConfigured;
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
 
+const BASE_ORDER_SELECT = `
+  id,
+  order_number,
+  subtotal,
+  discount_amount,
+  tax_amount,
+  total,
+  status,
+  order_type,
+  customer_name,
+  customer_phone,
+  receipt_no,
+  table_number,
+  split_bill_count,
+  created_at,
+  order_items (
+    id,
+    qty,
+    price,
+    product:products (
+      id,
+      name,
+      price,
+      image_url,
+      category_id
+    )
+  ),
+  payments (
+    id,
+    method,
+    amount
+  )
+`;
+
 export const isRetryableRemoteError = (error: unknown) => {
   const message = getErrorMessage(error);
   return (
@@ -93,6 +134,14 @@ const getRestaurantHeaders = async () => {
 const mapDbOrder = (row: DbOrderRow): Order => ({
   id: row.id,
   orderNumber: row.order_number,
+  orderNote: row.order_note ?? undefined,
+  orderSource: row.order_source ?? 'pos',
+  sourceApp: row.source_app ?? undefined,
+  externalOrderId: row.external_order_id ?? undefined,
+  externalPayload:
+    row.external_payload && typeof row.external_payload === 'object'
+      ? row.external_payload
+      : undefined,
   items: (row.order_items ?? []).map((item) => ({
     id: item.id,
     product: (() => {
@@ -106,7 +155,8 @@ const mapDbOrder = (row: DbOrderRow): Order => ({
       };
     })(),
     quantity: item.qty,
-    options: [],
+    options: item.options ?? [],
+    note: item.note ?? undefined,
   })),
   subtotal: Number(row.subtotal),
   discount: Number(row.discount_amount),
@@ -130,46 +180,89 @@ const mapDbOrder = (row: DbOrderRow): Order => ({
   synced: true,
 });
 
+const hydrateOrderWithPayload = (order: Order, payload: CreateOrderInput): Order => ({
+  ...order,
+  orderNote: payload.orderNote ?? order.orderNote,
+  orderSource: payload.orderSource ?? order.orderSource ?? 'pos',
+  sourceApp: payload.sourceApp ?? order.sourceApp,
+  externalOrderId: payload.externalOrderId ?? order.externalOrderId,
+  externalPayload: payload.externalPayload ?? order.externalPayload,
+  items: order.items.map((item, index) => ({
+    ...item,
+    options: payload.items[index]?.options ?? item.options ?? [],
+    note: payload.items[index]?.note ?? item.note,
+  })),
+});
+
+
 const fetchOrdersQuery = async () => {
   const client = assertSupabase();
   return client
     .from('orders')
-    .select(
-      `
-      id,
-      order_number,
-      subtotal,
-      discount_amount,
-      tax_amount,
-      total,
-      status,
-      order_type,
-      customer_name,
-      customer_phone,
-      receipt_no,
-      table_number,
-      split_bill_count,
-      created_at,
-      order_items (
-        id,
-        qty,
-        price,
-        product:products (
-          id,
-          name,
-          price,
-          image_url,
-          category_id
-        )
-      ),
-      payments (
-        id,
-        method,
-        amount
-      )
-    `
-    )
+    .select(BASE_ORDER_SELECT)
     .order('created_at', { ascending: false });
+};
+
+const fetchOrderRows = async () => {
+  const result = await fetchOrdersQuery();
+  if (result.error) throw result.error;
+  return result.data;
+};
+
+const buildOrderInsertPayload = (
+  payload: CreateOrderInput,
+  now: string
+) => ({
+  order_number: payload.orderNumber,
+  subtotal: payload.subtotal,
+  discount_amount: payload.discount,
+  tax_amount: payload.tax,
+  total: payload.total,
+  status: payload.status,
+  order_type: payload.orderType,
+  // orderNote dan metadata integrasi disimpan penuh lewat backend Express.
+  customer_name: payload.customer.name || null,
+  customer_phone: payload.customer.phone || null,
+  receipt_no: payload.customer.receiptNo || null,
+  table_number: payload.tableNumber ?? null,
+  split_bill_count: payload.splitBillCount,
+  cashier_user_id: payload.cashierUserId ?? null,
+  created_at: now,
+});
+
+const insertOrderRow = async (payload: CreateOrderInput, now: string) => {
+  const client = assertSupabase();
+  const result = await client
+    .from('orders')
+    .insert(buildOrderInsertPayload(payload, now))
+    .select('id')
+    .single();
+
+  if (result.error || !result.data) {
+    throw result.error ?? new Error('Gagal menyimpan order.');
+  }
+
+  return result.data;
+};
+
+const buildOrderItemsPayload = (orderId: string, payload: CreateOrderInput) =>
+  payload.items.map((item) => ({
+    order_id: orderId,
+    product_id: item.product.id,
+    qty: item.quantity,
+    price: item.product.price,
+  }));
+
+const insertOrderItems = async (orderId: string, payload: CreateOrderInput) => {
+  const client = assertSupabase();
+  const orderItemsPayload = buildOrderItemsPayload(orderId, payload);
+  if (orderItemsPayload.length === 0) return;
+
+  const result = await client.from('order_items').insert(orderItemsPayload);
+
+  if (result.error) {
+    throw result.error;
+  }
 };
 
 export const fetchCatalog = async (): Promise<{
@@ -193,6 +286,7 @@ export const fetchCatalog = async (): Promise<{
   if (!isSupabaseConfigured) {
     return { categories: CATEGORIES, products: PRODUCTS };
   }
+
 
   const client = assertSupabase();
   const [categoryResult, productResult] = await Promise.all([
@@ -378,8 +472,9 @@ export const fetchOrders = async (): Promise<Order[]> => {
   }
 
   if (!isSupabaseConfigured) return [];
-  const { data, error } = await fetchOrdersQuery();
-  if (error) throw error;
+  // Fallback direct-Supabase dipertahankan supaya app tetap hidup saat backend mati,
+  // tetapi source of truth untuk metadata integration tetap backend Express.
+  const data = await fetchOrderRows();
   return ((data as unknown as DbOrderRow[]) ?? []).map(mapDbOrder);
 };
 
@@ -399,44 +494,8 @@ export const createOrder = async (payload: CreateOrderInput): Promise<Order> => 
   const client = assertSupabase();
   const now = new Date().toISOString();
 
-  const { data: orderRow, error: orderError } = await client
-    .from('orders')
-    .insert({
-      order_number: payload.orderNumber,
-      subtotal: payload.subtotal,
-      discount_amount: payload.discount,
-      tax_amount: payload.tax,
-      total: payload.total,
-      status: payload.status,
-      order_type: payload.orderType,
-      customer_name: payload.customer.name || null,
-      customer_phone: payload.customer.phone || null,
-      receipt_no: payload.customer.receiptNo || null,
-      table_number: payload.tableNumber ?? null,
-      split_bill_count: payload.splitBillCount,
-      cashier_user_id: payload.cashierUserId ?? null,
-      created_at: now,
-    })
-    .select('id')
-    .single();
-
-  if (orderError || !orderRow) {
-    throw orderError ?? new Error('Gagal menyimpan order.');
-  }
-
-  const orderItemsPayload = payload.items.map((item) => ({
-    order_id: orderRow.id,
-    product_id: item.product.id,
-    qty: item.quantity,
-    price: item.product.price,
-  }));
-
-  if (orderItemsPayload.length > 0) {
-    const { error: orderItemsError } = await client.from('order_items').insert(orderItemsPayload);
-    if (orderItemsError) {
-      throw orderItemsError;
-    }
-  }
+  const orderRow = await insertOrderRow(payload, now);
+  await insertOrderItems(orderRow.id, payload);
 
   const paymentsPayload = payload.payments
     .filter((payment) => payment.amount > 0)
@@ -453,10 +512,7 @@ export const createOrder = async (payload: CreateOrderInput): Promise<Order> => 
     }
   }
 
-  const { data, error } = await fetchOrdersQuery();
-  if (error) {
-    throw error;
-  }
+  const data = await fetchOrderRows();
 
   const created = ((data as unknown as DbOrderRow[]) ?? []).find(
     (order) => order.id === orderRow.id
@@ -464,7 +520,8 @@ export const createOrder = async (payload: CreateOrderInput): Promise<Order> => 
   if (!created) {
     throw new Error('Order tersimpan, tapi gagal memuat ulang data order.');
   }
-  return mapDbOrder(created);
+
+  return hydrateOrderWithPayload(mapDbOrder(created), payload);
 };
 
 export const updateOrderStatus = async (orderId: string, status: OrderStatus) => {

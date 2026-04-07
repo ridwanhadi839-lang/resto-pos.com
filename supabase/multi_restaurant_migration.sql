@@ -1,5 +1,3 @@
--- Migrate an existing single-restaurant schema to the new multi-restaurant model.
--- Run this only if your database already used the old schema.
 
 create extension if not exists pgcrypto;
 

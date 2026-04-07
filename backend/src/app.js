@@ -27,7 +27,12 @@ app.use(
       return callback(new Error('Origin tidak diizinkan oleh konfigurasi CORS.'));
     },
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'x-restaurant-code'],
+    allowedHeaders: [
+      'Authorization',
+      'Content-Type',
+      'x-restaurant-code',
+      'x-integration-api-key',
+    ],
   })
 );
 app.use(express.json({ limit: '32kb' }));
@@ -43,6 +48,7 @@ app.get('/', (_req, res) => {
       catalog: '/api/catalog',
       customerContacts: '/api/customer-contacts',
       orders: '/api/orders',
+      externalOrders: '/api/orders/external',
     },
   });
 });

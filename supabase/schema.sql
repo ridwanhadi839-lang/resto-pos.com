@@ -57,12 +57,21 @@ create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
   restaurant_id uuid not null references public.restaurants(id) on delete cascade,
   order_number text not null,
+  -- `order_source`, `source_app`, dan `external_order_id` dipakai untuk menandai
+  -- order yang datang dari aplikasi lain dan mencegah order yang sama masuk dua kali.
+  order_source text not null default 'pos' check (order_source in ('pos', 'external')),
+  source_app text,
+  external_order_id text,
+  -- Simpan ringkasan payload asli agar printer / backend masih bisa audit data kiriman partner.
+  external_payload jsonb not null default '{}'::jsonb,
   subtotal numeric(12,2) not null check (subtotal >= 0),
   discount_amount numeric(12,2) not null default 0 check (discount_amount >= 0),
   tax_amount numeric(12,2) not null default 0 check (tax_amount >= 0),
   total numeric(12,2) not null check (total >= 0),
   status public.order_status not null default 'pending',
   order_type text not null check (order_type in ('dine-in', 'takeaway', 'delivery')),
+  -- Catatan order level header, misalnya "tanpa sambal" atau instruksi dari aplikasi delivery.
+  order_note text,
   customer_name text,
   customer_phone text,
   receipt_no text,
@@ -78,7 +87,10 @@ create table if not exists public.order_items (
   order_id uuid not null references public.orders(id) on delete cascade,
   product_id uuid not null references public.products(id) on delete restrict,
   qty integer not null check (qty > 0),
-  price numeric(12,2) not null check (price >= 0)
+  price numeric(12,2) not null check (price >= 0),
+  -- Opsi dan note item perlu disimpan supaya kitchen print sesuai data asli dari aplikasi lain.
+  options jsonb not null default '[]'::jsonb,
+  note text
 );
 
 create table if not exists public.payments (
@@ -124,8 +136,12 @@ create index if not exists idx_categories_restaurant_id on public.categories(res
 create index if not exists idx_products_restaurant_id on public.products(restaurant_id);
 create index if not exists idx_products_category_id on public.products(category_id);
 create index if not exists idx_orders_restaurant_id on public.orders(restaurant_id);
+create index if not exists idx_orders_restaurant_source_created_at on public.orders(restaurant_id, order_source, created_at desc);
 create index if not exists idx_orders_status on public.orders(status);
 create index if not exists idx_orders_created_at on public.orders(created_at desc);
+create unique index if not exists idx_orders_restaurant_external_reference
+on public.orders(restaurant_id, source_app, external_order_id)
+where external_order_id is not null;
 create index if not exists idx_order_items_order_id on public.order_items(order_id);
 create index if not exists idx_payments_order_id on public.payments(order_id);
 create index if not exists idx_audit_logs_restaurant_id on public.audit_logs(restaurant_id);
@@ -289,3 +305,24 @@ begin
     alter publication supabase_realtime add table public.payments;
   end if;
 end $$;
+
+comment on column public.orders.order_source is
+'Sumber order: default dari POS internal, atau external jika order datang dari aplikasi partner.';
+
+comment on column public.orders.source_app is
+'Nama aplikasi / channel pengirim order, misalnya GrabFood, GoFood, ShopeeFood, atau custom webhook.';
+
+comment on column public.orders.external_order_id is
+'ID order dari sistem luar untuk deduplikasi webhook dan rekonsiliasi data.';
+
+comment on column public.orders.external_payload is
+'Payload ringkas dari aplikasi luar agar perubahan format atau kebutuhan audit masih bisa ditelusuri.';
+
+comment on column public.orders.order_note is
+'Catatan pada level order yang ikut dipakai saat kitchen ticket atau cashier receipt dicetak.';
+
+comment on column public.order_items.options is
+'Array JSON untuk modifier / opsi item. Contoh: ["Extra cheese", "Less sugar"].';
+
+comment on column public.order_items.note is
+'Catatan khusus per item yang perlu tampil di kitchen print.';

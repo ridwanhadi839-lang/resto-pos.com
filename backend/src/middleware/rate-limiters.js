@@ -22,7 +22,19 @@ const writeActionRateLimiter = rateLimit({
   },
 });
 
+const externalOrderRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 240,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    ok: false,
+    error: 'Terlalu banyak order external dalam waktu singkat. Coba lagi sebentar.',
+  },
+});
+
 module.exports = {
   pinLoginRateLimiter,
   writeActionRateLimiter,
+  externalOrderRateLimiter,
 };

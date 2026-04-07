@@ -45,6 +45,12 @@ Environment variables yang wajib diisi di Vercel:
 - `JWT_SECRET`
 - `JWT_EXPIRES_IN`
 - `CORS_ORIGIN`
+- `INTEGRATION_API_KEY`
+
+Untuk test backend lokal tanpa hardcode PIN di source code, isi juga di `backend/.env`:
+
+- `TEST_LOGIN_RESTAURANT_CODE`
+- `TEST_LOGIN_PIN`
 
 Untuk frontend GitHub Pages pada repo ini, isi `CORS_ORIGIN` dengan:
 
@@ -67,11 +73,13 @@ Contoh base URL backend setelah deploy:
 - `DELETE /api/catalog/products/:id`
 - `GET /api/orders`
 - `POST /api/orders`
+- `POST /api/orders/external`
 - `PATCH /api/orders/:id/status`
 
 ## Catatan
 
 - Route selain `health` butuh kredensial Supabase backend di file `.env`.
 - Route `catalog` dan `orders` sekarang butuh token Bearer hasil login.
+- Route `POST /api/orders/external` memakai `x-integration-api-key` dan `x-restaurant-code`.
 - Katalog write dibatasi untuk role `supervisor`.
 - Jika ingin memakai mode `delivery`, pastikan constraint `order_type` di database Supabase juga sudah ikut diperbarui.
