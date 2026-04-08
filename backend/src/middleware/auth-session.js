@@ -51,6 +51,7 @@ const requireAuthSession = async (req, _res, next) => {
       restaurantUserId: session.id,
       restaurantId: session.restaurant.id,
       restaurantCode: session.restaurant.code,
+      restaurantName: session.restaurant.name,
       role: session.role,
     };
     req.restaurantCode = session.restaurant.code;

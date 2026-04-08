@@ -7,6 +7,8 @@ type ApiEnvelope<T> = {
   message?: string;
 };
 
+const API_REQUEST_TIMEOUT_MS = 8000;
+
 const normalizeBaseUrl = (value?: string) => {
   if (!value) return '';
   return value.trim().replace(/\/+$/, '');
@@ -30,13 +32,22 @@ export const apiRequest = async <T>(path: string, init?: RequestInit): Promise<A
   }
 
   let response: Response;
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), API_REQUEST_TIMEOUT_MS);
   try {
     response = await fetch(`${apiBaseUrl}${path}`, {
       ...init,
       headers,
+      signal: abortController.signal,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request ke backend timeout. Cek server Express atau koneksi ke Supabase.');
+    }
+
     throw new Error('Tidak bisa terhubung ke backend. Periksa EXPO_PUBLIC_API_BASE_URL dan server Express.');
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   let payload: ApiEnvelope<T> | null = null;

@@ -3,6 +3,10 @@ const { AppError } = require('../utils/app-error');
 const { ensureNonEmptyString, requireSupabaseAdmin } = require('../utils/validation');
 const { requireRestaurantByCode } = require('./restaurant.service');
 
+const CATALOG_CACHE_TTL_MS = 30 * 1000;
+const catalogCache = new Map();
+const inflightCatalogRequests = new Map();
+
 const mapCategory = (row) => ({
   id: row.id,
   name: row.name,
@@ -15,6 +19,50 @@ const mapProduct = (row) => ({
   imageUrl: row.image_url,
   categoryId: row.category_id,
 });
+
+const cloneCatalog = (catalog) => ({
+  categories: catalog.categories.map((category) => ({ ...category })),
+  products: catalog.products.map((product) => ({ ...product })),
+});
+
+const readCatalogCache = (restaurantCode) => {
+  const entry = catalogCache.get(restaurantCode);
+  if (!entry) return null;
+
+  if (Date.now() > entry.expiresAt) {
+    catalogCache.delete(restaurantCode);
+    return null;
+  }
+
+  return cloneCatalog(entry.data);
+};
+
+const writeCatalogCache = (restaurantCode, catalog) => {
+  catalogCache.set(restaurantCode, {
+    data: cloneCatalog(catalog),
+    expiresAt: Date.now() + CATALOG_CACHE_TTL_MS,
+  });
+};
+
+const invalidateCatalogCache = (restaurantCode) => {
+  if (!restaurantCode) return;
+
+  catalogCache.delete(restaurantCode);
+  inflightCatalogRequests.delete(restaurantCode);
+};
+
+const resolveRestaurantContext = async (restaurantOrCode) => {
+  if (
+    restaurantOrCode &&
+    typeof restaurantOrCode === 'object' &&
+    typeof restaurantOrCode.id === 'string' &&
+    typeof restaurantOrCode.code === 'string'
+  ) {
+    return restaurantOrCode;
+  }
+
+  return requireRestaurantByCode(restaurantOrCode);
+};
 
 const ensureCategoryBelongsToRestaurant = async (restaurantId, categoryId) => {
   const { data, error } = await supabaseAdmin
@@ -33,10 +81,7 @@ const ensureCategoryBelongsToRestaurant = async (restaurantId, categoryId) => {
   }
 };
 
-const getCatalog = async (restaurantCode) => {
-  requireSupabaseAdmin(supabaseAdmin);
-  const restaurant = await requireRestaurantByCode(restaurantCode);
-
+const fetchCatalogFromDatabase = async (restaurant) => {
   const [categoryResult, productResult] = await Promise.all([
     supabaseAdmin
       .from('categories')
@@ -64,6 +109,35 @@ const getCatalog = async (restaurantCode) => {
   };
 };
 
+const getCatalog = async (restaurantOrCode) => {
+  requireSupabaseAdmin(supabaseAdmin);
+  const restaurant = await resolveRestaurantContext(restaurantOrCode);
+  const restaurantCode = restaurant.code;
+  const cachedCatalog = readCatalogCache(restaurantCode);
+  if (cachedCatalog) {
+    return cachedCatalog;
+  }
+
+  const existingRequest = inflightCatalogRequests.get(restaurantCode);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = (async () => {
+    const catalog = await fetchCatalogFromDatabase(restaurant);
+    writeCatalogCache(restaurantCode, catalog);
+    return cloneCatalog(catalog);
+  })();
+
+  inflightCatalogRequests.set(restaurantCode, request);
+
+  try {
+    return await request;
+  } finally {
+    inflightCatalogRequests.delete(restaurantCode);
+  }
+};
+
 const createCategory = async (restaurantCode, name) => {
   requireSupabaseAdmin(supabaseAdmin);
   const restaurant = await requireRestaurantByCode(restaurantCode);
@@ -79,6 +153,7 @@ const createCategory = async (restaurantCode, name) => {
     throw new AppError('Gagal membuat kategori.', 400, error);
   }
 
+  invalidateCatalogCache(restaurantCode);
   return mapCategory(data);
 };
 
@@ -99,6 +174,7 @@ const updateCategory = async (restaurantCode, id, name) => {
     throw new AppError('Gagal mengubah kategori.', 400, error);
   }
 
+  invalidateCatalogCache(restaurantCode);
   return mapCategory(data);
 };
 
@@ -115,6 +191,8 @@ const deleteCategory = async (restaurantCode, id) => {
   if (error) {
     throw new AppError('Gagal menghapus kategori.', 400, error);
   }
+
+  invalidateCatalogCache(restaurantCode);
 };
 
 const normalizeProductInput = (input) => ({
@@ -150,6 +228,7 @@ const createProduct = async (restaurantCode, input) => {
     throw new AppError('Gagal membuat produk.', 400, error);
   }
 
+  invalidateCatalogCache(restaurantCode);
   return mapProduct(data);
 };
 
@@ -175,6 +254,7 @@ const updateProduct = async (restaurantCode, id, input) => {
     throw new AppError('Gagal mengubah produk.', 400, error);
   }
 
+  invalidateCatalogCache(restaurantCode);
   return mapProduct(data);
 };
 
@@ -191,6 +271,8 @@ const deleteProduct = async (restaurantCode, id) => {
   if (error) {
     throw new AppError('Gagal menghapus produk.', 400, error);
   }
+
+  invalidateCatalogCache(restaurantCode);
 };
 
 module.exports = {

@@ -21,7 +21,17 @@ router.use(requireAuthSession);
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const catalog = await getCatalog(req.restaurantCode);
+    const startedAt = Date.now();
+    const catalog = await getCatalog({
+      id: req.auth?.restaurantId,
+      code: req.restaurantCode,
+      name: req.auth?.restaurantName,
+    });
+    const durationMs = Date.now() - startedAt;
+
+    if (durationMs > 300) {
+      console.info(`[catalog] ${req.restaurantCode} loaded in ${durationMs}ms`);
+    }
 
     res.json({
       ok: true,
