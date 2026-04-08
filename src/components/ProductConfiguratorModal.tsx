@@ -42,16 +42,13 @@ const DEFAULT_VARIANT_GROUPS: VariantGroup[] = [
 
 const APPETIZER_VARIANT_GROUPS: VariantGroup[] = [
   {
-    id: 'spice',
-    options: ['Spicy', 'No Spicy'],
-  },
-  {
-    id: 'jalapeno',
-    options: ['Extra Jalapeno', 'Without Jalapeno'],
+    id: 'appetizer-preference',
+    options: ['No Spicy', 'Extra Jalapeno', 'Without Jalapeno'],
   },
 ];
 
 const normalizeValue = (value: string | undefined | null) => value?.trim().toLowerCase() ?? '';
+const APPETIZER_PRODUCT_NAMES = new Set(['cheese fries', 'chicken wings']);
 
 const getVariantGroups = (
   product: Product | null,
@@ -59,8 +56,13 @@ const getVariantGroups = (
 ): VariantGroup[] => {
   if (!product) return [];
 
+  const productName = normalizeValue(product.name);
   const categoryName = normalizeValue(product.categoryName) || normalizeValue(activeCategoryName);
-  if (categoryName === 'appetizer' || categoryName === 'appitizer') {
+  if (
+    categoryName === 'appetizer' ||
+    categoryName === 'appitizer' ||
+    APPETIZER_PRODUCT_NAMES.has(productName)
+  ) {
     return APPETIZER_VARIANT_GROUPS;
   }
 
