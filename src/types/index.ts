@@ -32,6 +32,7 @@ export interface Product {
   price: number;
   imageUrl?: string | null;
   categoryId: string;
+  categoryName?: string;
   emoji?: string;
 }
 

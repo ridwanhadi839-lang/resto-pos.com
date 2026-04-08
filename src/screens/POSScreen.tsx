@@ -142,6 +142,8 @@ export const POSScreen: React.FC = () => {
     selectedCategoryId,
     setSelectedCategoryId,
   } = usePOSCatalog();
+  const selectedCategoryName =
+    categories.find((category) => category.id === selectedCategoryId)?.name ?? '';
   const [isPaymentModalVisible, setPaymentModalVisible] = useState(false);
   const [isNotesModalVisible, setNotesModalVisible] = useState(false);
   const [notesDraft, setNotesDraft] = useState('');
@@ -1120,6 +1122,7 @@ export const POSScreen: React.FC = () => {
       <ProductConfiguratorModal
         visible={selectedProduct != null}
         product={selectedProduct}
+        activeCategoryName={selectedCategoryName}
         initialQuantity={editingCartItem?.quantity ?? 1}
         initialOptions={editingCartItem?.options ?? []}
         submitLabel={editingCartItem ? 'Simpan Perubahan' : 'Tambah ke Cart'}
