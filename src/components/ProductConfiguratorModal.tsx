@@ -16,6 +16,7 @@ import { formatPrice } from '../data/mockData';
 interface ProductConfiguratorModalProps {
   product: Product | null;
   visible: boolean;
+  activeCategoryName?: string;
   initialQuantity?: number;
   initialOptions?: string[];
   submitLabel?: string;
@@ -28,22 +29,43 @@ type VariantGroup = {
   options: string[];
 };
 
-const getVariantGroups = (product: Product | null): VariantGroup[] => {
+const DEFAULT_VARIANT_GROUPS: VariantGroup[] = [
+  {
+    id: 'doneness',
+    options: ['Medium Well', 'Well Done'],
+  },
+  {
+    id: 'cheese',
+    options: ['No Cheese', 'Extra Cheese'],
+  },
+];
+
+const APPETIZER_VARIANT_GROUPS: VariantGroup[] = [
+  {
+    id: 'spice',
+    options: ['Spicy', 'No Spicy'],
+  },
+  {
+    id: 'jalapeno',
+    options: ['Extra Jalapeno', 'Without Jalapeno'],
+  },
+];
+
+const normalizeValue = (value: string | undefined | null) => value?.trim().toLowerCase() ?? '';
+
+const getVariantGroups = (
+  product: Product | null,
+  activeCategoryName?: string
+): VariantGroup[] => {
   if (!product) return [];
 
-  return [
-    {
-      id: 'doneness',
-      options: ['Medium Well', 'Well Done'],
-    },
-    {
-      id: 'cheese',
-      options: ['No Cheese', 'Extra Cheese'],
-    },
-  ];
-};
+  const categoryName = normalizeValue(product.categoryName) || normalizeValue(activeCategoryName);
+  if (categoryName === 'appetizer' || categoryName === 'appitizer') {
+    return APPETIZER_VARIANT_GROUPS;
+  }
 
-const PRESET_VARIANT_ORDER = ['Well Done', 'Medium Well', 'No Cheese', 'Extra Cheese'];
+  return DEFAULT_VARIANT_GROUPS;
+};
 
 const getInitialSelections = (variantGroups: VariantGroup[], options: string[]) => {
   const remaining = [...options];
@@ -70,13 +92,17 @@ const getInitialSelections = (variantGroups: VariantGroup[], options: string[]) 
 export const ProductConfiguratorModal: React.FC<ProductConfiguratorModalProps> = ({
   product,
   visible,
+  activeCategoryName,
   initialQuantity = 1,
   initialOptions = [],
   submitLabel = 'Tambah ke Cart',
   onClose,
   onSubmit,
 }) => {
-  const variantGroups = React.useMemo(() => getVariantGroups(product), [product]);
+  const variantGroups = React.useMemo(
+    () => getVariantGroups(product, activeCategoryName),
+    [activeCategoryName, product]
+  );
   const [quantity, setQuantity] = React.useState(initialQuantity);
   const [singleSelections, setSingleSelections] = React.useState<Record<string, string>>({});
   const [customVariant, setCustomVariant] = React.useState('');
@@ -95,9 +121,7 @@ export const ProductConfiguratorModal: React.FC<ProductConfiguratorModalProps> =
 
   if (!product) return null;
 
-  const presetOptions = PRESET_VARIANT_ORDER.filter((option) =>
-    variantGroups.some((group) => group.options.includes(option))
-  );
+  const presetOptions = variantGroups.flatMap((group) => group.options);
 
   const selectedPresetOptions = variantGroups
     .map((group) => singleSelections[group.id])
