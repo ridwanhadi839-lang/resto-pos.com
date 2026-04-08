@@ -1,7 +1,7 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { CATEGORIES, PRODUCTS } from '../data/mockData';
 import { apiRequest, isApiConfigured } from '../lib/api';
-import { assertSupabase, isSupabaseConfigured, supabase } from '../lib/supabase';
 import { getCurrentRestaurantCode } from './authService';
 import {
   Category,
@@ -11,6 +11,15 @@ import {
   PaymentLine,
   Product,
 } from '../types';
+
+type CatalogData = {
+  categories: Category[];
+  products: Product[];
+};
+
+type StoredCatalogData = CatalogData & {
+  savedAt: string;
+};
 
 type DbOrderRow = {
   id: string;
@@ -66,12 +75,116 @@ type DbOrderRow = {
     | null;
 };
 
-export const hasRemoteOrderAccess = isApiConfigured || isSupabaseConfigured;
-export const hasRemoteCatalogAccess = isApiConfigured || isSupabaseConfigured;
-export const hasOrderRealtimeSync = !isApiConfigured && isSupabaseConfigured;
+export const hasRemoteOrderAccess = isApiConfigured;
+export const hasRemoteCatalogAccess = isApiConfigured;
+export const hasOrderRealtimeSync = false;
+
+const CATALOG_CACHE_STORAGE_KEY_PREFIX = 'restopos.catalog.';
+const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+const catalogMemoryCache = new Map<
+  string,
+  {
+    data: CatalogData;
+    savedAt: string;
+    expiresAt: number;
+  }
+>();
+const catalogInflightRequests = new Map<string, Promise<CatalogData>>();
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+const cloneCatalogData = (catalog: CatalogData): CatalogData => ({
+  categories: catalog.categories.map((category) => ({ ...category })),
+  products: catalog.products.map((product) => ({ ...product })),
+});
+
+const getCatalogStorageKey = (restaurantCode: string) =>
+  `${CATALOG_CACHE_STORAGE_KEY_PREFIX}${restaurantCode}`;
+
+const setCatalogMemoryCache = (restaurantCode: string, catalog: CatalogData, savedAt: string) => {
+  catalogMemoryCache.set(restaurantCode, {
+    data: cloneCatalogData(catalog),
+    savedAt,
+    expiresAt: new Date(savedAt).getTime() + CATALOG_CACHE_TTL_MS,
+  });
+};
+
+const getCatalogFromMemoryCache = (restaurantCode: string, allowStale: boolean) => {
+  const entry = catalogMemoryCache.get(restaurantCode);
+  if (!entry) return null;
+
+  if (!allowStale && Date.now() > entry.expiresAt) {
+    catalogMemoryCache.delete(restaurantCode);
+    return null;
+  }
+
+  return cloneCatalogData(entry.data);
+};
+
+const persistCatalogCache = async (restaurantCode: string, catalog: CatalogData) => {
+  const savedAt = new Date().toISOString();
+  const payload: StoredCatalogData = {
+    ...cloneCatalogData(catalog),
+    savedAt,
+  };
+
+  setCatalogMemoryCache(restaurantCode, payload, savedAt);
+  await AsyncStorage.setItem(getCatalogStorageKey(restaurantCode), JSON.stringify(payload));
+};
+
+const readCatalogCache = async (
+  restaurantCode: string,
+  { allowStale = true }: { allowStale?: boolean } = {}
+): Promise<CatalogData | null> => {
+  const memoryCached = getCatalogFromMemoryCache(restaurantCode, allowStale);
+  if (memoryCached) {
+    return memoryCached;
+  }
+
+  const raw = await AsyncStorage.getItem(getCatalogStorageKey(restaurantCode));
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredCatalogData>;
+    const savedAt = typeof parsed.savedAt === 'string' ? parsed.savedAt : null;
+    if (!savedAt) {
+      await AsyncStorage.removeItem(getCatalogStorageKey(restaurantCode));
+      return null;
+    }
+
+    const expiresAt = new Date(savedAt).getTime() + CATALOG_CACHE_TTL_MS;
+    if (!allowStale && Date.now() > expiresAt) {
+      await AsyncStorage.removeItem(getCatalogStorageKey(restaurantCode));
+      return null;
+    }
+
+    const catalog: CatalogData = {
+      categories: Array.isArray(parsed.categories) ? parsed.categories : [],
+      products: Array.isArray(parsed.products) ? parsed.products : [],
+    };
+
+    setCatalogMemoryCache(restaurantCode, catalog, savedAt);
+    return cloneCatalogData(catalog);
+  } catch {
+    await AsyncStorage.removeItem(getCatalogStorageKey(restaurantCode));
+    return null;
+  }
+};
+
+const invalidateCatalogCacheByRestaurantCode = async (restaurantCode: string | null) => {
+  if (!restaurantCode) return;
+
+  catalogMemoryCache.delete(restaurantCode);
+  await AsyncStorage.removeItem(getCatalogStorageKey(restaurantCode));
+};
+
+const invalidateCurrentCatalogCache = async () => {
+  if (!hasRemoteCatalogAccess) return;
+
+  const restaurantCode = await getCurrentRestaurantCode();
+  await invalidateCatalogCacheByRestaurantCode(restaurantCode);
+};
 
 const BASE_ORDER_SELECT = `
   id,
@@ -129,6 +242,16 @@ const getRestaurantHeaders = async () => {
   return {
     'x-restaurant-code': restaurantCode,
   };
+};
+
+const requireRestaurantCodeForCatalog = async (restaurantCodeOverride?: string | null) => {
+  const restaurantCode = restaurantCodeOverride ?? (await getCurrentRestaurantCode());
+
+  if (!restaurantCode) {
+    throw new Error('Kode restoran belum tersedia. Silakan login ulang.');
+  }
+
+  return restaurantCode;
 };
 
 const mapDbOrder = (row: DbOrderRow): Order => ({
@@ -195,80 +318,7 @@ const hydrateOrderWithPayload = (order: Order, payload: CreateOrderInput): Order
 });
 
 
-const fetchOrdersQuery = async () => {
-  const client = assertSupabase();
-  return client
-    .from('orders')
-    .select(BASE_ORDER_SELECT)
-    .order('created_at', { ascending: false });
-};
-
-const fetchOrderRows = async () => {
-  const result = await fetchOrdersQuery();
-  if (result.error) throw result.error;
-  return result.data;
-};
-
-const buildOrderInsertPayload = (
-  payload: CreateOrderInput,
-  now: string
-) => ({
-  order_number: payload.orderNumber,
-  subtotal: payload.subtotal,
-  discount_amount: payload.discount,
-  tax_amount: payload.tax,
-  total: payload.total,
-  status: payload.status,
-  order_type: payload.orderType,
-  // orderNote dan metadata integrasi disimpan penuh lewat backend Express.
-  customer_name: payload.customer.name || null,
-  customer_phone: payload.customer.phone || null,
-  receipt_no: payload.customer.receiptNo || null,
-  table_number: payload.tableNumber ?? null,
-  split_bill_count: payload.splitBillCount,
-  cashier_user_id: payload.cashierUserId ?? null,
-  created_at: now,
-});
-
-const insertOrderRow = async (payload: CreateOrderInput, now: string) => {
-  const client = assertSupabase();
-  const result = await client
-    .from('orders')
-    .insert(buildOrderInsertPayload(payload, now))
-    .select('id')
-    .single();
-
-  if (result.error || !result.data) {
-    throw result.error ?? new Error('Gagal menyimpan order.');
-  }
-
-  return result.data;
-};
-
-const buildOrderItemsPayload = (orderId: string, payload: CreateOrderInput) =>
-  payload.items.map((item) => ({
-    order_id: orderId,
-    product_id: item.product.id,
-    qty: item.quantity,
-    price: item.product.price,
-  }));
-
-const insertOrderItems = async (orderId: string, payload: CreateOrderInput) => {
-  const client = assertSupabase();
-  const orderItemsPayload = buildOrderItemsPayload(orderId, payload);
-  if (orderItemsPayload.length === 0) return;
-
-  const result = await client.from('order_items').insert(orderItemsPayload);
-
-  if (result.error) {
-    throw result.error;
-  }
-};
-
-export const fetchCatalog = async (): Promise<{
-  categories: Category[];
-  products: Product[];
-}> => {
+const fetchCatalogFromSource = async (): Promise<CatalogData> => {
   if (isApiConfigured) {
     const response = await apiRequest<{ categories: Category[]; products: Product[] }>(
       '/api/catalog',
@@ -283,39 +333,66 @@ export const fetchCatalog = async (): Promise<{
     };
   }
 
-  if (!isSupabaseConfigured) {
+  return { categories: CATEGORIES, products: PRODUCTS };
+};
+
+const fetchFreshCatalog = async (restaurantCode: string) => {
+  const existingRequest = catalogInflightRequests.get(restaurantCode);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = (async () => {
+    const catalog = await fetchCatalogFromSource();
+    await persistCatalogCache(restaurantCode, catalog);
+    return cloneCatalogData(catalog);
+  })();
+
+  catalogInflightRequests.set(restaurantCode, request);
+
+  try {
+    return await request;
+  } finally {
+    catalogInflightRequests.delete(restaurantCode);
+  }
+};
+
+export const getCachedCatalog = async (
+  restaurantCodeOverride?: string | null
+): Promise<CatalogData | null> => {
+  if (!hasRemoteCatalogAccess) {
     return { categories: CATEGORIES, products: PRODUCTS };
   }
 
+  const restaurantCode = await requireRestaurantCodeForCatalog(restaurantCodeOverride);
+  return readCatalogCache(restaurantCode, { allowStale: true });
+};
 
-  const client = assertSupabase();
-  const [categoryResult, productResult] = await Promise.all([
-    client.from('categories').select('id, name').order('name'),
-    client
-      .from('products')
-      .select('id, name, price, image_url, category_id')
-      .order('name'),
-  ]);
-
-  if (categoryResult.error || productResult.error) {
-    throw categoryResult.error ?? productResult.error;
+export const preloadCatalog = async ({
+  forceRefresh = false,
+  restaurantCode,
+}: {
+  forceRefresh?: boolean;
+  restaurantCode?: string | null;
+} = {}): Promise<CatalogData> => {
+  if (!hasRemoteCatalogAccess) {
+    return { categories: CATEGORIES, products: PRODUCTS };
   }
 
-  const categories: Category[] = (categoryResult.data ?? []).map((cat) => ({
-    id: cat.id,
-    name: cat.name,
-  }));
+  const resolvedRestaurantCode = await requireRestaurantCodeForCatalog(restaurantCode);
 
-  const products: Product[] = (productResult.data ?? []).map((product) => ({
-    id: product.id,
-    name: product.name,
-    price: Number(product.price),
-    imageUrl: product.image_url,
-    categoryId: product.category_id,
-  }));
+  if (!forceRefresh) {
+    const cached = await readCatalogCache(resolvedRestaurantCode, { allowStale: false });
+    if (cached) {
+      return cached;
+    }
+  }
 
-  return { categories, products };
+  return fetchFreshCatalog(resolvedRestaurantCode);
 };
+
+export const fetchCatalog = async (restaurantCode?: string | null): Promise<CatalogData> =>
+  preloadCatalog({ restaurantCode });
 
 export const createCategory = async (name: string): Promise<Category> => {
   if (isApiConfigured) {
@@ -325,17 +402,11 @@ export const createCategory = async (name: string): Promise<Category> => {
       body: JSON.stringify({ name }),
     });
     if (!response.data) throw new Error('Backend tidak mengembalikan kategori baru.');
+    await invalidateCurrentCatalogCache();
     return response.data;
   }
 
-  const client = assertSupabase();
-  const { data, error } = await client
-    .from('categories')
-    .insert({ name: name.trim() })
-    .select('id, name')
-    .single();
-  if (error) throw error;
-  return { id: data.id, name: data.name };
+  throw new Error('CRUD katalog hanya tersedia lewat backend Express.');
 };
 
 export const updateCategory = async (id: string, name: string): Promise<Category> => {
@@ -346,18 +417,11 @@ export const updateCategory = async (id: string, name: string): Promise<Category
       body: JSON.stringify({ name }),
     });
     if (!response.data) throw new Error('Backend tidak mengembalikan kategori hasil update.');
+    await invalidateCurrentCatalogCache();
     return response.data;
   }
 
-  const client = assertSupabase();
-  const { data, error } = await client
-    .from('categories')
-    .update({ name: name.trim() })
-    .eq('id', id)
-    .select('id, name')
-    .single();
-  if (error) throw error;
-  return { id: data.id, name: data.name };
+  throw new Error('CRUD katalog hanya tersedia lewat backend Express.');
 };
 
 export const deleteCategory = async (id: string): Promise<void> => {
@@ -366,12 +430,11 @@ export const deleteCategory = async (id: string): Promise<void> => {
       method: 'DELETE',
       headers: await getRestaurantHeaders(),
     });
+    await invalidateCurrentCatalogCache();
     return;
   }
 
-  const client = assertSupabase();
-  const { error } = await client.from('categories').delete().eq('id', id);
-  if (error) throw error;
+  throw new Error('CRUD katalog hanya tersedia lewat backend Express.');
 };
 
 interface UpsertProductInput {
@@ -389,28 +452,11 @@ export const createProduct = async (input: UpsertProductInput): Promise<Product>
       body: JSON.stringify(input),
     });
     if (!response.data) throw new Error('Backend tidak mengembalikan produk baru.');
+    await invalidateCurrentCatalogCache();
     return response.data;
   }
 
-  const client = assertSupabase();
-  const { data, error } = await client
-    .from('products')
-    .insert({
-      name: input.name.trim(),
-      price: input.price,
-      category_id: input.categoryId,
-      image_url: input.imageUrl ?? null,
-    })
-    .select('id, name, price, image_url, category_id')
-    .single();
-  if (error) throw error;
-  return {
-    id: data.id,
-    name: data.name,
-    price: Number(data.price),
-    categoryId: data.category_id,
-    imageUrl: data.image_url,
-  };
+  throw new Error('CRUD katalog hanya tersedia lewat backend Express.');
 };
 
 export const updateProduct = async (
@@ -424,29 +470,11 @@ export const updateProduct = async (
       body: JSON.stringify(input),
     });
     if (!response.data) throw new Error('Backend tidak mengembalikan produk hasil update.');
+    await invalidateCurrentCatalogCache();
     return response.data;
   }
 
-  const client = assertSupabase();
-  const { data, error } = await client
-    .from('products')
-    .update({
-      name: input.name.trim(),
-      price: input.price,
-      category_id: input.categoryId,
-      image_url: input.imageUrl ?? null,
-    })
-    .eq('id', id)
-    .select('id, name, price, image_url, category_id')
-    .single();
-  if (error) throw error;
-  return {
-    id: data.id,
-    name: data.name,
-    price: Number(data.price),
-    categoryId: data.category_id,
-    imageUrl: data.image_url,
-  };
+  throw new Error('CRUD katalog hanya tersedia lewat backend Express.');
 };
 
 export const deleteProduct = async (id: string): Promise<void> => {
@@ -455,12 +483,11 @@ export const deleteProduct = async (id: string): Promise<void> => {
       method: 'DELETE',
       headers: await getRestaurantHeaders(),
     });
+    await invalidateCurrentCatalogCache();
     return;
   }
 
-  const client = assertSupabase();
-  const { error } = await client.from('products').delete().eq('id', id);
-  if (error) throw error;
+  throw new Error('CRUD katalog hanya tersedia lewat backend Express.');
 };
 
 export const fetchOrders = async (): Promise<Order[]> => {
@@ -471,11 +498,7 @@ export const fetchOrders = async (): Promise<Order[]> => {
     return response.data ?? [];
   }
 
-  if (!isSupabaseConfigured) return [];
-  // Fallback direct-Supabase dipertahankan supaya app tetap hidup saat backend mati,
-  // tetapi source of truth untuk metadata integration tetap backend Express.
-  const data = await fetchOrderRows();
-  return ((data as unknown as DbOrderRow[]) ?? []).map(mapDbOrder);
+  return [];
 };
 
 export const createOrder = async (payload: CreateOrderInput): Promise<Order> => {
@@ -491,37 +514,7 @@ export const createOrder = async (payload: CreateOrderInput): Promise<Order> => 
     return response.data;
   }
 
-  const client = assertSupabase();
-  const now = new Date().toISOString();
-
-  const orderRow = await insertOrderRow(payload, now);
-  await insertOrderItems(orderRow.id, payload);
-
-  const paymentsPayload = payload.payments
-    .filter((payment) => payment.amount > 0)
-    .map((payment) => ({
-      order_id: orderRow.id,
-      method: payment.method,
-      amount: payment.amount,
-    }));
-
-  if (paymentsPayload.length > 0) {
-    const { error: paymentsError } = await client.from('payments').insert(paymentsPayload);
-    if (paymentsError) {
-      throw paymentsError;
-    }
-  }
-
-  const data = await fetchOrderRows();
-
-  const created = ((data as unknown as DbOrderRow[]) ?? []).find(
-    (order) => order.id === orderRow.id
-  );
-  if (!created) {
-    throw new Error('Order tersimpan, tapi gagal memuat ulang data order.');
-  }
-
-  return hydrateOrderWithPayload(mapDbOrder(created), payload);
+  throw new Error('Pembuatan order hanya tersedia lewat backend Express.');
 };
 
 export const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
@@ -534,34 +527,14 @@ export const updateOrderStatus = async (orderId: string, status: OrderStatus) =>
     return;
   }
 
-  const client = assertSupabase();
-  const { error } = await client.from('orders').update({ status }).eq('id', orderId);
-  if (error) throw error;
+  throw new Error('Update status order hanya tersedia lewat backend Express.');
 };
 
 export const subscribeOrdersRealtime = (
   onChange: () => Promise<void> | void
 ): RealtimeChannel | null => {
-  if (!hasOrderRealtimeSync || !supabase) return null;
-
-  return supabase
-    .channel('orders-realtime')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'orders' },
-      () => onChange()
-    )
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'order_items' },
-      () => onChange()
-    )
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'payments' },
-      () => onChange()
-    )
-    .subscribe();
+  void onChange;
+  return null;
 };
 
 export const createDefaultPayments = (total: number): PaymentLine[] => [

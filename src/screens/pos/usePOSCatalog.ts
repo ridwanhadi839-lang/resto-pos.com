@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { CATEGORIES, PRODUCTS } from '../../data/mockData';
-import { fetchCatalog, getCachedCatalog, hasRemoteCatalogAccess } from '../../services/orderService';
+import {
+  getCachedCatalog,
+  hasRemoteCatalogAccess,
+  preloadCatalog,
+} from '../../services/orderService';
+import { useAuthStore } from '../../store/authStore';
 import { Category, Product } from '../../types';
+
+const CATALOG_FOCUS_REFRESH_INTERVAL_MS = 60 * 1000;
 
 const attachCategoryNames = (categories: Category[], products: Product[]) => {
   const categoryNameById = new Map(categories.map((category) => [category.id, category.name]));
@@ -15,6 +22,7 @@ const attachCategoryNames = (categories: Category[], products: Product[]) => {
 };
 
 export const usePOSCatalog = () => {
+  const restaurantCode = useAuthStore((s) => s.currentUser?.restaurantCode ?? null);
   const [categories, setCategories] = useState<Category[]>(hasRemoteCatalogAccess ? [] : CATEGORIES);
   const [products, setProducts] = useState<Product[]>(
     hasRemoteCatalogAccess ? [] : attachCategoryNames(CATEGORIES, PRODUCTS)
@@ -24,6 +32,8 @@ export const usePOSCatalog = () => {
     hasRemoteCatalogAccess ? '' : CATEGORIES[0]?.id ?? ''
   );
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const lastSuccessfulLoadRef = useRef(0);
+  const skipNextFocusRefreshRef = useRef(true);
 
   const applyCatalog = useCallback((catalog: { categories: Category[]; products: Product[] }) => {
     const nextCategories = catalog.categories;
@@ -37,21 +47,33 @@ export const usePOSCatalog = () => {
     });
   }, []);
 
-  const loadCatalog = useCallback(async () => {
-    const cachedCatalog = hasRemoteCatalogAccess ? await getCachedCatalog() : null;
-
-    if (cachedCatalog) {
-      applyCatalog(cachedCatalog);
-      setCatalogLoading(false);
-    } else {
+  const loadCatalog = useCallback(
+    async ({
+      showLoader = true,
+      forceRefresh = false,
+    }: {
+      showLoader?: boolean;
+      forceRefresh?: boolean;
+    } = {}) => {
+    let cachedCatalog: { categories: Category[]; products: Product[] } | null = null;
+    if (showLoader) {
       setCatalogLoading(true);
     }
-
     setCatalogError(null);
 
     try {
-      const catalog = await fetchCatalog();
+      cachedCatalog = hasRemoteCatalogAccess ? await getCachedCatalog(restaurantCode) : null;
+
+      if (cachedCatalog) {
+        applyCatalog(cachedCatalog);
+        if (showLoader) {
+          setCatalogLoading(false);
+        }
+      }
+
+      const catalog = await preloadCatalog({ forceRefresh, restaurantCode });
       applyCatalog(catalog);
+      lastSuccessfulLoadRef.current = Date.now();
     } catch (error) {
       if (hasRemoteCatalogAccess) {
         if (!cachedCatalog) {
@@ -68,16 +90,35 @@ export const usePOSCatalog = () => {
     } finally {
       setCatalogLoading(false);
     }
-  }, [applyCatalog]);
+    },
+    [applyCatalog, restaurantCode]
+  );
 
   useEffect(() => {
-    loadCatalog();
+    void loadCatalog();
   }, [loadCatalog]);
 
   useFocusEffect(
     useCallback(() => {
-      loadCatalog();
-    }, [loadCatalog])
+      if (skipNextFocusRefreshRef.current) {
+        skipNextFocusRefreshRef.current = false;
+        return undefined;
+      }
+
+      const hasLoadedCatalog = lastSuccessfulLoadRef.current > 0;
+      const isStale =
+        !hasLoadedCatalog ||
+        Date.now() - lastSuccessfulLoadRef.current > CATALOG_FOCUS_REFRESH_INTERVAL_MS;
+
+      if (isStale || Boolean(catalogError)) {
+        void loadCatalog({
+          showLoader: categories.length === 0,
+          forceRefresh: isStale,
+        });
+      }
+
+      return undefined;
+    }, [catalogError, categories.length, loadCatalog])
   );
 
   const filteredProducts = useMemo(
