@@ -29,7 +29,7 @@ type VariantGroup = {
   options: string[];
 };
 
-const DEFAULT_VARIANT_GROUPS: VariantGroup[] = [
+const BURGER_VARIANT_GROUPS: VariantGroup[] = [
   {
     id: 'doneness',
     options: ['Medium Well', 'Well Done'],
@@ -73,6 +73,11 @@ const isSoftDrinkCategory = (categoryName: string) =>
   categoryName.includes('drink') ||
   categoryName.includes('beverage');
 
+const isAppetizerCategory = (categoryName: string) =>
+  categoryName.includes('appetizer') || categoryName.includes('appitizer');
+
+const isBurgerCategory = (categoryName: string) => categoryName.includes('burger');
+
 const getVariantGroups = (
   product: Product | null,
   activeCategoryName?: string
@@ -81,11 +86,8 @@ const getVariantGroups = (
 
   const productName = normalizeValue(product.name);
   const categoryName = normalizeValue(product.categoryName) || normalizeValue(activeCategoryName);
-  if (
-    categoryName === 'appetizer' ||
-    categoryName === 'appitizer' ||
-    APPETIZER_PRODUCT_NAMES.has(productName)
-  ) {
+
+  if (isAppetizerCategory(categoryName) || APPETIZER_PRODUCT_NAMES.has(productName)) {
     return APPETIZER_VARIANT_GROUPS;
   }
 
@@ -93,7 +95,11 @@ const getVariantGroups = (
     return SOFT_DRINK_VARIANT_GROUPS;
   }
 
-  return DEFAULT_VARIANT_GROUPS;
+  if (isBurgerCategory(categoryName)) {
+    return BURGER_VARIANT_GROUPS;
+  }
+
+  return BURGER_VARIANT_GROUPS;
 };
 
 const getInitialSelections = (variantGroups: VariantGroup[], options: string[]) => {
