@@ -74,7 +74,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
       return {
         ...current,
-        [method]: suggestedAmount > 0 ? String(suggestedAmount) : current[method],
+        [method]: String(suggestedAmount),
       };
     });
   };
