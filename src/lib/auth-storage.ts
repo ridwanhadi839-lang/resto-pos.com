@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 export const AUTH_USER_STORAGE_KEY = 'restopos.auth.user';
 export const AUTH_TOKEN_STORAGE_KEY = 'restopos.auth.token';
@@ -15,9 +16,24 @@ let hasHydratedUserCache = false;
 let hasHydratedTokenCache = false;
 
 const getSecureStore = (): SecureStoreModule | null => {
+  if (Platform.OS === 'web') {
+    return null;
+  }
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require('expo-secure-store') as SecureStoreModule;
+    const secureStore = require('expo-secure-store') as Partial<SecureStoreModule> | null;
+
+    if (
+      !secureStore ||
+      typeof secureStore.getItemAsync !== 'function' ||
+      typeof secureStore.setItemAsync !== 'function' ||
+      typeof secureStore.deleteItemAsync !== 'function'
+    ) {
+      return null;
+    }
+
+    return secureStore as SecureStoreModule;
   } catch {
     return null;
   }
