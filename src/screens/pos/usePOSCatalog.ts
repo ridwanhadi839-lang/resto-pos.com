@@ -34,6 +34,16 @@ export const usePOSCatalog = () => {
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const lastSuccessfulLoadRef = useRef(0);
   const skipNextFocusRefreshRef = useRef(true);
+  const categoriesLengthRef = useRef(0);
+  const catalogErrorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    categoriesLengthRef.current = categories.length;
+  }, [categories.length]);
+
+  useEffect(() => {
+    catalogErrorRef.current = catalogError;
+  }, [catalogError]);
 
   const applyCatalog = useCallback((catalog: { categories: Category[]; products: Product[] }) => {
     const nextCategories = catalog.categories;
@@ -110,15 +120,15 @@ export const usePOSCatalog = () => {
         !hasLoadedCatalog ||
         Date.now() - lastSuccessfulLoadRef.current > CATALOG_FOCUS_REFRESH_INTERVAL_MS;
 
-      if (isStale || Boolean(catalogError)) {
+      if (isStale || Boolean(catalogErrorRef.current)) {
         void loadCatalog({
-          showLoader: categories.length === 0,
+          showLoader: categoriesLengthRef.current === 0,
           forceRefresh: isStale,
         });
       }
 
       return undefined;
-    }, [catalogError, categories.length, loadCatalog])
+    }, [loadCatalog])
   );
 
   const filteredProducts = useMemo(
