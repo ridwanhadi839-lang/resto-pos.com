@@ -48,44 +48,34 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     qr: '',
     visa: '',
   });
-  const [activeMethods, setActiveMethods] = React.useState<PaymentMethod[]>(['cash']);
+  const [activeMethods, setActiveMethods] = React.useState<PaymentMethod[]>([]);
 
   React.useEffect(() => {
     if (!visible) return;
     setAmounts({
-      cash: String(totalAmount),
+      cash: '',
       qr: '',
       visa: '',
     });
-    setActiveMethods(['cash']);
+    setActiveMethods([]);
   }, [totalAmount, visible]);
 
   const totalPaid = METHODS.reduce((sum, method) => sum + parseAmount(amounts[method.key]), 0);
   const remaining = totalAmount - totalPaid;
 
-  const toggleMethod = (method: PaymentMethod) => {
-    setActiveMethods((prev) => {
-      if (prev.includes(method)) {
-        setAmounts((current) => ({
-          ...current,
-          [method]: '',
-        }));
-        return prev.filter((item) => item !== method);
-      }
+  const activateMethod = (method: PaymentMethod) => {
+    setActiveMethods((prev) => (prev.includes(method) ? prev : [...prev, method]));
+    setAmounts((current) => {
+      const paidByOtherMethods = METHODS.reduce((sum, item) => {
+        if (item.key === method) return sum;
+        return sum + parseAmount(current[item.key]);
+      }, 0);
+      const suggestedAmount = Math.max(totalAmount - paidByOtherMethods, 0);
 
-      setAmounts((current) => {
-        if (parseAmount(current[method]) > 0) {
-          return current;
-        }
-
-        const hasOtherAmount = METHODS.some((item) => parseAmount(current[item.key]) > 0);
-        return {
-          ...current,
-          [method]: hasOtherAmount ? current[method] : String(totalAmount),
-        };
-      });
-
-      return [...prev, method];
+      return {
+        ...current,
+        [method]: suggestedAmount > 0 ? String(suggestedAmount) : current[method],
+      };
     });
   };
 
@@ -139,7 +129,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                           index < METHODS.length - 1 && styles.methodTableCellDivider,
                           isActive && styles.methodTableBodyCellActive,
                         ]}
-                        onPress={() => toggleMethod(method.key)}
+                        onPress={() => activateMethod(method.key)}
                       >
                         <Text
                           style={[
@@ -176,7 +166,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               <View style={styles.summaryCard}>
                 <Text style={styles.summaryText}>Dibayar: {formatPrice(totalPaid)}</Text>
                 <Text style={styles.summaryText}>
-                  {remaining >= 0 ? 'Sisa' : 'Lebih'}: {formatPrice(Math.abs(remaining))}
+                  {remaining >= 0 ? 'Sisa' : 'Kembalian'}: {formatPrice(Math.abs(remaining))}
                 </Text>
               </View>
 
