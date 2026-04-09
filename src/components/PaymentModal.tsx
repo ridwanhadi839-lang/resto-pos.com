@@ -26,8 +26,8 @@ interface PaymentModalProps {
 
 const METHODS: Array<{ key: PaymentMethod; label: string }> = [
   { key: 'cash', label: 'Cash' },
-  { key: 'qr', label: 'QR' },
   { key: 'visa', label: 'Visa' },
+  { key: 'qr', label: 'Card' },
 ];
 
 const parseAmount = (value: string): number => {
@@ -48,6 +48,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     qr: '',
     visa: '',
   });
+  const [activeMethods, setActiveMethods] = React.useState<PaymentMethod[]>(['cash']);
 
   React.useEffect(() => {
     if (!visible) return;
@@ -56,16 +57,35 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       qr: '',
       visa: '',
     });
+    setActiveMethods(['cash']);
   }, [totalAmount, visible]);
 
   const totalPaid = METHODS.reduce((sum, method) => sum + parseAmount(amounts[method.key]), 0);
   const remaining = totalAmount - totalPaid;
 
-  const fillSingleMethod = (method: PaymentMethod) => {
-    setAmounts({
-      cash: method === 'cash' ? String(totalAmount) : '',
-      qr: method === 'qr' ? String(totalAmount) : '',
-      visa: method === 'visa' ? String(totalAmount) : '',
+  const toggleMethod = (method: PaymentMethod) => {
+    setActiveMethods((prev) => {
+      if (prev.includes(method)) {
+        setAmounts((current) => ({
+          ...current,
+          [method]: '',
+        }));
+        return prev.filter((item) => item !== method);
+      }
+
+      setAmounts((current) => {
+        if (parseAmount(current[method]) > 0) {
+          return current;
+        }
+
+        const hasOtherAmount = METHODS.some((item) => parseAmount(current[item.key]) > 0);
+        return {
+          ...current,
+          [method]: hasOtherAmount ? current[method] : String(totalAmount),
+        };
+      });
+
+      return [...prev, method];
     });
   };
 
@@ -107,19 +127,35 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <Text style={styles.totalValue}>{formatPrice(totalAmount)}</Text>
               </View>
 
-              <View style={styles.quickFillRow}>
-                {METHODS.map((method) => (
-                  <TouchableOpacity
-                    key={method.key}
-                    style={styles.quickFillBtn}
-                    onPress={() => fillSingleMethod(method.key)}
-                  >
-                    <Text style={styles.quickFillText}>{method.label}</Text>
-                  </TouchableOpacity>
-                ))}
+              <View style={styles.methodTable}>
+                <View style={styles.methodTableBodyRow}>
+                  {METHODS.map((method, index) => {
+                    const isActive = activeMethods.includes(method.key);
+                    return (
+                      <TouchableOpacity
+                        key={method.key}
+                        style={[
+                          styles.methodTableBodyCell,
+                          index < METHODS.length - 1 && styles.methodTableCellDivider,
+                          isActive && styles.methodTableBodyCellActive,
+                        ]}
+                        onPress={() => toggleMethod(method.key)}
+                      >
+                        <Text
+                          style={[
+                            styles.methodTableBodyText,
+                            isActive && styles.methodTableBodyTextActive,
+                          ]}
+                        >
+                          {method.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
 
-              {METHODS.map((method) => (
+              {METHODS.filter((method) => activeMethods.includes(method.key)).map((method) => (
                 <View key={method.key} style={styles.row}>
                   <Text style={styles.label}>{method.label}</Text>
                   <TextInput
@@ -201,34 +237,50 @@ const styles = StyleSheet.create({
     color: COLORS.primaryPurple,
     fontWeight: '800',
   },
-  quickFillRow: {
-    flexDirection: 'row',
-    gap: 8,
+  methodTable: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.md,
+    overflow: 'hidden',
   },
-  quickFillBtn: {
+  methodTableBodyRow: {
+    flexDirection: 'row',
+  },
+  methodTableBodyCell: {
     flex: 1,
-    height: 36,
-    borderRadius: RADIUS.sm,
-    backgroundColor: COLORS.lightPurple,
+    minHeight: 56,
+    backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 12,
   },
-  quickFillText: {
+  methodTableBodyCellActive: {
+    backgroundColor: COLORS.lightPurple,
+  },
+  methodTableCellDivider: {
+    borderRightWidth: 1,
+    borderRightColor: COLORS.border,
+  },
+  methodTableBodyText: {
+    color: COLORS.textDark,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  methodTableBodyTextActive: {
     color: COLORS.primaryPurple,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
   },
   label: {
     fontSize: 14,
     color: COLORS.textGray,
     fontWeight: '700',
     width: 90,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
   },
   amountInput: {
     flex: 1,

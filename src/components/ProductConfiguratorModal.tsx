@@ -47,8 +47,31 @@ const APPETIZER_VARIANT_GROUPS: VariantGroup[] = [
   },
 ];
 
+const SOFT_DRINK_VARIANT_GROUPS: VariantGroup[] = [
+  {
+    id: 'drink-temperature',
+    options: ['Cold', 'No Cold'],
+  },
+];
+
 const normalizeValue = (value: string | undefined | null) => value?.trim().toLowerCase() ?? '';
 const APPETIZER_PRODUCT_NAMES = new Set(['cheese fries', 'chicken wings']);
+const SOFT_DRINK_PRODUCT_NAMES = new Set([
+  'coca cola',
+  'coca-cola',
+  'cola',
+  'coke',
+  'sprite',
+  'fanta',
+  'lemon tea',
+  'mineral water',
+]);
+
+const isSoftDrinkCategory = (categoryName: string) =>
+  categoryName.includes('soft drink') ||
+  categoryName.includes('softdrink') ||
+  categoryName.includes('drink') ||
+  categoryName.includes('beverage');
 
 const getVariantGroups = (
   product: Product | null,
@@ -64,6 +87,10 @@ const getVariantGroups = (
     APPETIZER_PRODUCT_NAMES.has(productName)
   ) {
     return APPETIZER_VARIANT_GROUPS;
+  }
+
+  if (isSoftDrinkCategory(categoryName) || SOFT_DRINK_PRODUCT_NAMES.has(productName)) {
+    return SOFT_DRINK_VARIANT_GROUPS;
   }
 
   return DEFAULT_VARIANT_GROUPS;
