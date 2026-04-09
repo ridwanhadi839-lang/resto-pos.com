@@ -1,10 +1,18 @@
-const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator, rateLimit } = require('express-rate-limit');
+
+const normalizeRestaurantCode = (value) =>
+  typeof value === 'string' && value.trim().length > 0
+    ? value.trim().toLowerCase()
+    : 'unknown-restaurant';
 
 const pinLoginRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) =>
+    `${ipKeyGenerator(req.ip)}:${normalizeRestaurantCode(req.body?.restaurantCode)}`,
   message: {
     ok: false,
     error: 'Terlalu banyak percobaan login PIN. Coba lagi dalam 15 menit.',

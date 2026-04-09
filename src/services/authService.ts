@@ -1,14 +1,15 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiRequest, isApiConfigured } from '../lib/api';
 import {
-  AUTH_USER_STORAGE_KEY,
   clearAuthSession,
   getStoredAuthToken,
+  getStoredAuthUserJson,
   saveAuthSession,
 } from '../lib/auth-storage';
 import { User } from '../types';
 
-export const LOGIN_PIN = '445566';
+const ENABLE_LOCAL_DEV_AUTH =
+  __DEV__ && process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEV_AUTH === 'true';
+const LOCAL_DEV_LOGIN_PIN = process.env.EXPO_PUBLIC_LOCAL_LOGIN_PIN?.trim() ?? '';
 
 const DEFAULT_USER: User = {
   id: 'local-cashier',
@@ -36,7 +37,7 @@ const normalizeRestaurantCode = (restaurantCode: string) => restaurantCode.trim(
 
 export const getStoredAuthUser = async (): Promise<User | null> => {
   const [raw, accessToken] = await Promise.all([
-    AsyncStorage.getItem(AUTH_USER_STORAGE_KEY),
+    getStoredAuthUserJson(),
     getStoredAuthToken(),
   ]);
   if (!raw || !accessToken) return null;
@@ -97,8 +98,22 @@ export const signInWithPin = async (restaurantCode: string, pin: string) => {
     }
   }
 
-  if (pin !== LOGIN_PIN) {
-    return { ok: false as const, error: 'PIN salah. Gunakan PIN yang sudah ditentukan.' };
+  if (!ENABLE_LOCAL_DEV_AUTH) {
+    return {
+      ok: false as const,
+      error: 'Backend API belum dikonfigurasi dan login lokal dev sedang nonaktif.',
+    };
+  }
+
+  if (!isValidPinFormat(LOCAL_DEV_LOGIN_PIN)) {
+    return {
+      ok: false as const,
+      error: 'EXPO_PUBLIC_LOCAL_LOGIN_PIN belum valid. Isi 6 digit untuk dev auth lokal.',
+    };
+  }
+
+  if (pin !== LOCAL_DEV_LOGIN_PIN) {
+    return { ok: false as const, error: 'PIN salah untuk login lokal development.' };
   }
 
   const localUser = buildLocalUser(normalizedRestaurantCode);

@@ -10,7 +10,7 @@ const {
 const { requireRestaurantByCode } = require('./restaurant.service');
 const { createSessionToken } = require('./session.service');
 
-const mapUserRow = (row, email, restaurant) => ({
+const mapUserRow = (row, restaurant) => ({
   id: row.user.id,
   name: row.user.name,
   role: row.role,
@@ -29,10 +29,12 @@ const signInWithPin = async (restaurantCode, pin) => {
     .from('restaurant_users')
     .select(
       `
-      *,
+      id,
+      role,
+      pin_hash,
+      pin_code,
       user:users!inner (
         id,
-        auth_user_id,
         name
       )
     `
@@ -73,16 +75,7 @@ const signInWithPin = async (restaurantCode, pin) => {
   }
 
   const userRow = matchingUsers[0];
-  let email = null;
-
-  if (userRow.user?.auth_user_id) {
-    const authResult = await supabaseAdmin.auth.admin.getUserById(userRow.user.auth_user_id);
-    if (!authResult.error) {
-      email = authResult.data.user?.email || null;
-    }
-  }
-
-  const user = mapUserRow(userRow, email, restaurant);
+  const user = mapUserRow(userRow, restaurant);
   const accessToken = createSessionToken({
     userId: userRow.user.id,
     restaurantUserId: userRow.id,
