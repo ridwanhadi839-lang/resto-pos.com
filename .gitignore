@@ -10,6 +10,7 @@ backend/.env.*
 !backend/.env.example
 *.local
 *.secret
+android/release-signing.properties
 
 # Expo / React Native local state
 .expo/

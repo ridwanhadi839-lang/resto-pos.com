@@ -15,7 +15,11 @@ interface POSCartPanelProps {
   customer: CustomerInfo;
   hasCustomerInfo: boolean;
   discountPercent: number;
-  pendingCount: number;
+  pendingCartCount: number;
+  pendingSyncCount: number;
+  isOnline: boolean;
+  isSyncing: boolean;
+  lastSyncError: string | null;
   isPaidOrderLoaded: boolean;
   orderNote?: string;
   items: CartItem[];
@@ -29,6 +33,7 @@ interface POSCartPanelProps {
   onEditCartItem: (item: CartItem) => void;
   onRemoveCartItem: (id: string) => void;
   onPay: () => void;
+  onRetrySync: () => void;
   payDisabled: boolean;
 }
 
@@ -39,7 +44,11 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   customer,
   hasCustomerInfo,
   discountPercent,
-  pendingCount,
+  pendingCartCount,
+  pendingSyncCount,
+  isOnline,
+  isSyncing,
+  lastSyncError,
   isPaidOrderLoaded,
   orderNote,
   items,
@@ -53,8 +62,25 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   onEditCartItem,
   onRemoveCartItem,
   onPay,
+  onRetrySync,
   payDisabled,
 }) => {
+  const syncStatusLabel = isSyncing
+    ? 'Sync berjalan'
+    : !isOnline
+      ? 'Offline'
+      : pendingSyncCount > 0
+        ? `${pendingSyncCount} pending sync`
+        : 'Online';
+  const syncStatusText = isSyncing
+    ? 'Mengirim order ke Supabase...'
+    : !isOnline
+      ? 'Order baru akan disimpan di SQLite sampai koneksi kembali.'
+      : pendingSyncCount > 0
+        ? 'Order lokal siap dikirim ke Supabase.'
+        : 'Supabase siap menerima order.';
+  const retryDisabled = !isOnline || isSyncing || pendingSyncCount === 0;
+
   return (
     <View style={[styles.cartPanel, style]}>
       <View style={styles.invoiceCard}>
@@ -65,6 +91,32 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
         <View style={[styles.modeBadge, orderType === 'delivery' && styles.modeBadgeDelivery]}>
           <Text style={styles.modeBadgeText}>{getOrderModeLabel(orderType)}</Text>
         </View>
+      </View>
+
+      <View
+        style={[
+          styles.syncStatusCard,
+          !isOnline && styles.syncStatusOffline,
+          pendingSyncCount > 0 && isOnline && styles.syncStatusPending,
+        ]}
+      >
+        <View style={styles.syncStatusContent}>
+          <Text style={styles.syncStatusLabel}>{syncStatusLabel}</Text>
+          <Text style={styles.syncStatusText}>
+            {lastSyncError && pendingSyncCount > 0 ? lastSyncError : syncStatusText}
+          </Text>
+        </View>
+
+        {pendingSyncCount > 0 ? (
+          <TouchableOpacity
+            style={[styles.syncRetryButton, retryDisabled && styles.syncRetryButtonDisabled]}
+            onPress={onRetrySync}
+            disabled={retryDisabled}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.syncRetryText}>{isSyncing ? 'Mengirim...' : 'Retry'}</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       <View style={styles.orderControlBlock}>
@@ -100,7 +152,8 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
         <Text style={styles.cartCount}>
           {itemCount} item
           {discountPercent > 0 ? ` | Disc ${discountPercent}%` : ''}
-          {pendingCount > 0 ? ` | Pending ${pendingCount}` : ''}
+          {pendingCartCount > 0 ? ` | Cart Pending ${pendingCartCount}` : ''}
+          {pendingSyncCount > 0 ? ` | Sync ${pendingSyncCount}` : ''}
           {isPaidOrderLoaded ? ' | Sudah Paid' : ''}
           {orderNote ? ' | Note' : ''}
         </Text>
@@ -174,6 +227,58 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 12,
     fontWeight: '700',
+  },
+  syncStatusCard: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+    borderWidth: 1,
+    borderRadius: RADIUS.sm,
+    padding: 10,
+    minHeight: 70,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  syncStatusOffline: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FCA5A5',
+  },
+  syncStatusPending: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FCD34D',
+  },
+  syncStatusContent: {
+    flex: 1,
+    gap: 2,
+  },
+  syncStatusLabel: {
+    color: COLORS.textDark,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  syncStatusText: {
+    color: COLORS.textGray,
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  syncRetryButton: {
+    minWidth: 76,
+    height: 34,
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.primaryPurple,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  syncRetryButtonDisabled: {
+    backgroundColor: COLORS.textLight,
+  },
+  syncRetryText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: '800',
   },
   orderControlBlock: {
     gap: 8,

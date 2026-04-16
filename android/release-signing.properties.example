@@ -1,0 +1,6 @@
+# Copy this file to android/release-signing.properties and fill it locally.
+# Do not commit the copied file.
+RESTAURANTPOS_UPLOAD_STORE_FILE=upload-keystore.jks
+RESTAURANTPOS_UPLOAD_STORE_PASSWORD=change-this-password
+RESTAURANTPOS_UPLOAD_KEY_ALIAS=upload
+RESTAURANTPOS_UPLOAD_KEY_PASSWORD=change-this-password

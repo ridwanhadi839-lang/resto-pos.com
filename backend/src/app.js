@@ -7,6 +7,7 @@ const { errorHandler, notFoundHandler } = require('./middleware/error-handler');
 const authRoutes = require('./routes/auth.routes');
 const catalogRoutes = require('./routes/catalog.routes');
 const customerContactRoutes = require('./routes/customer-contact.routes');
+const dashboardRoutes = require('./routes/dashboard.routes');
 const healthRoutes = require('./routes/health.routes');
 const orderRoutes = require('./routes/order.routes');
 
@@ -47,6 +48,7 @@ app.get('/', (_req, res) => {
       auth: '/api/auth',
       catalog: '/api/catalog',
       customerContacts: '/api/customer-contacts',
+      dashboard: '/api/dashboard',
       orders: '/api/orders',
       externalOrders: '/api/orders/external',
     },
@@ -57,6 +59,7 @@ app.use('/api/health', healthRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/catalog', catalogRoutes);
 app.use('/api/customer-contacts', customerContactRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/orders', orderRoutes);
 
 app.use(notFoundHandler);

@@ -5,6 +5,7 @@ import {
   signInWithPin,
   signOut,
 } from '../services/authService';
+import { preloadCatalog } from '../services/orderService';
 import { User } from '../types';
 
 interface LoginResult {
@@ -39,6 +40,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const user = await getInitialUser();
       set({ currentUser: user });
+      if (user) {
+        void preloadCatalog();
+      }
     } catch (error) {
       set({
         authError: error instanceof Error ? error.message : 'Gagal inisialisasi auth.',
@@ -65,6 +69,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       set({ currentUser: result.user, isLoggingIn: false, authError: null });
+      void preloadCatalog();
       return { ok: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Login gagal.';

@@ -3,6 +3,11 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+def releaseSigningProperties = new Properties()
+def releaseSigningPropertiesFile = rootProject.file('release-signing.properties')
+if (releaseSigningPropertiesFile.exists()) {
+    releaseSigningPropertiesFile.withInputStream { releaseSigningProperties.load(it) }
+}
 
 static def versionToNumber(major, minor, patch) {
   return patch * 100 + minor * 10000 + major * 1000000
@@ -124,15 +129,28 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            def releaseStoreFile = findProperty('RESTAURANTPOS_UPLOAD_STORE_FILE') ?: releaseSigningProperties['RESTAURANTPOS_UPLOAD_STORE_FILE'] ?: System.getenv('RESTAURANTPOS_UPLOAD_STORE_FILE')
+            def releaseStorePassword = findProperty('RESTAURANTPOS_UPLOAD_STORE_PASSWORD') ?: releaseSigningProperties['RESTAURANTPOS_UPLOAD_STORE_PASSWORD'] ?: System.getenv('RESTAURANTPOS_UPLOAD_STORE_PASSWORD')
+            def releaseKeyAlias = findProperty('RESTAURANTPOS_UPLOAD_KEY_ALIAS') ?: releaseSigningProperties['RESTAURANTPOS_UPLOAD_KEY_ALIAS'] ?: System.getenv('RESTAURANTPOS_UPLOAD_KEY_ALIAS')
+            def releaseKeyPassword = findProperty('RESTAURANTPOS_UPLOAD_KEY_PASSWORD') ?: releaseSigningProperties['RESTAURANTPOS_UPLOAD_KEY_PASSWORD'] ?: System.getenv('RESTAURANTPOS_UPLOAD_KEY_PASSWORD')
+
+            if (releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword) {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            if (signingConfigs.release.storeFile != null) {
+                signingConfig signingConfigs.release
+            }
             shrinkResources (findProperty('android.enableShrinkResourcesInReleaseBuilds')?.toBoolean() ?: false)
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"

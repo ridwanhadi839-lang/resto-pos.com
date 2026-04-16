@@ -10,18 +10,18 @@ import {
   Alert,
 } from 'react-native';
 import { useAuthStore } from '../store/authStore';
-import { LOGIN_PIN } from '../services/authService';
 import { isApiConfigured } from '../lib/api';
 import { COLORS, RADIUS } from '../constants/theme';
 
 const sanitizePin = (value: string) => value.replace(/[^0-9]/g, '').slice(0, 6);
+const DEFAULT_RESTAURANT_CODE = 'bh-altakhassusi';
 
 export const LoginScreen: React.FC = () => {
   const login = useAuthStore((s) => s.login);
   const isLoggingIn = useAuthStore((s) => s.isLoggingIn);
   const authError = useAuthStore((s) => s.authError);
 
-  const [restaurantCode, setRestaurantCode] = React.useState('');
+  const [restaurantCode, setRestaurantCode] = React.useState(DEFAULT_RESTAURANT_CODE);
   const [pin, setPin] = React.useState('');
 
   const handleLogin = async () => {
@@ -64,7 +64,7 @@ export const LoginScreen: React.FC = () => {
             onChangeText={setRestaurantCode}
             autoCapitalize="none"
             autoCorrect={false}
-            placeholder="resto-a"
+            placeholder="bh-altakhassusi"
             placeholderTextColor={COLORS.textLight}
           />
           <Text style={styles.label}>PIN (6 digit)</Text>
@@ -75,13 +75,13 @@ export const LoginScreen: React.FC = () => {
             keyboardType="number-pad"
             secureTextEntry
             maxLength={6}
-            placeholder={isApiConfigured ? '******' : LOGIN_PIN}
+            placeholder="******"
             placeholderTextColor={COLORS.textLight}
           />
           <Text style={styles.pinHint}>
             {isApiConfigured
               ? 'Login memakai format kode restoran + PIN lewat backend Express.'
-              : `Mode lokal aktif. Gunakan kode restoran bebas dan PIN ${LOGIN_PIN}`}
+              : 'Mode lokal aktif jika EXPO_PUBLIC_ENABLE_LOCAL_DEV_AUTH=true dan PIN dev sudah diisi.'}
           </Text>
         </View>
 
@@ -102,7 +102,7 @@ export const LoginScreen: React.FC = () => {
 
         <Text style={styles.hintText}>
           {isApiConfigured
-            ? 'Contoh kode restoran dari seed: resto-a atau resto-b.'
+            ? 'Kode restoran aktif: bh-altakhassusi.'
             : 'Login lokal dipakai hanya sebagai fallback saat backend tidak aktif.'}
         </Text>
       </View>

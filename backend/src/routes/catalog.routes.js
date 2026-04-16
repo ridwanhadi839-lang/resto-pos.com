@@ -15,6 +15,7 @@ const { requireRole } = require('../middleware/require-role');
 const { asyncHandler } = require('../utils/async-handler');
 
 const router = express.Router();
+const requireCatalogManager = requireRole('owner', 'admin', 'supervisor');
 
 router.use(requireAuthSession);
 
@@ -43,7 +44,7 @@ router.get(
 router.post(
   '/categories',
   writeActionRateLimiter,
-  requireRole('supervisor'),
+  requireCatalogManager,
   asyncHandler(async (req, res) => {
     const category = await createCategory(req.restaurantCode, req.body?.name);
 
@@ -57,7 +58,7 @@ router.post(
 router.patch(
   '/categories/:id',
   writeActionRateLimiter,
-  requireRole('supervisor'),
+  requireCatalogManager,
   asyncHandler(async (req, res) => {
     const category = await updateCategory(req.restaurantCode, req.params.id, req.body?.name);
 
@@ -71,7 +72,7 @@ router.patch(
 router.delete(
   '/categories/:id',
   writeActionRateLimiter,
-  requireRole('supervisor'),
+  requireCatalogManager,
   asyncHandler(async (req, res) => {
     await deleteCategory(req.restaurantCode, req.params.id);
 
@@ -85,7 +86,7 @@ router.delete(
 router.post(
   '/products',
   writeActionRateLimiter,
-  requireRole('supervisor'),
+  requireCatalogManager,
   asyncHandler(async (req, res) => {
     const product = await createProduct(req.restaurantCode, req.body || {});
 
@@ -99,7 +100,7 @@ router.post(
 router.patch(
   '/products/:id',
   writeActionRateLimiter,
-  requireRole('supervisor'),
+  requireCatalogManager,
   asyncHandler(async (req, res) => {
     const product = await updateProduct(req.restaurantCode, req.params.id, req.body || {});
 
@@ -113,7 +114,7 @@ router.patch(
 router.delete(
   '/products/:id',
   writeActionRateLimiter,
-  requireRole('supervisor'),
+  requireCatalogManager,
   asyncHandler(async (req, res) => {
     await deleteProduct(req.restaurantCode, req.params.id);
 

@@ -103,7 +103,62 @@ const testLogin = async () => {
 
   assert.ok(session.user);
   assert.equal(session.user.restaurantCode, testRestaurantCode);
-  assert.match(session.user.role, /cashier|supervisor|kitchen/);
+  assert.match(session.user.role, /cashier|supervisor|kitchen|owner|admin/);
+};
+
+const testDashboardFoundation = async () => {
+  const authHeaders = await getAuthHeaders();
+  const session = await login();
+
+  const endpoints = [
+    '/api/dashboard/outlets',
+    '/api/dashboard/devices',
+    '/api/dashboard/device-sessions',
+    '/api/dashboard/cash-shifts',
+  ];
+
+  for (const endpoint of endpoints) {
+    const result = await requestJson(endpoint, {
+      headers: authHeaders,
+    });
+
+    assert.equal(result.response.status, 200);
+    assert.equal(result.json?.ok, true);
+    assert.ok(Array.isArray(result.json?.data));
+  }
+
+  const outletsResult = await requestJson('/api/dashboard/outlets', {
+    headers: authHeaders,
+  });
+  assert.ok(outletsResult.json?.data?.some((outlet) => outlet.code === 'MAIN'));
+
+  const createOutletResult = await requestJson('/api/dashboard/outlets', {
+    method: 'POST',
+    headers: {
+      ...authHeaders,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      code: `TEST_${Date.now()}`,
+      name: 'Automated Test Outlet',
+    }),
+  });
+
+  if (session.user.role === 'cashier' || session.user.role === 'kitchen') {
+    assert.equal(createOutletResult.response.status, 403);
+    assert.equal(createOutletResult.json?.ok, false);
+  } else {
+    assert.equal(createOutletResult.response.status, 201);
+    assert.equal(createOutletResult.json?.ok, true);
+    const createdOutletId = createOutletResult.json?.data?.id;
+    assert.ok(createdOutletId);
+
+    await supabaseAdmin
+      .from('outlets')
+      .delete()
+      .eq('id', createdOutletId)
+      .eq('restaurant_id', session.user.restaurantId);
+  }
 };
 
 const testCreateOrder = async () => {
@@ -169,6 +224,20 @@ const testCreateOrder = async () => {
   assert.deepEqual(createResult.json?.data?.items?.[0]?.options, ['Less ice', 'Extra sauce']);
   assert.equal(createResult.json?.data?.items?.[0]?.note, 'Pisahkan sambal');
   createdOrderIds.push(createResult.json.data.id);
+
+  const retryResult = await requestJson('/api/orders', {
+    method: 'POST',
+    headers: {
+      ...authHeaders,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  assert.equal(retryResult.response.status, 201);
+  assert.equal(retryResult.json?.ok, true);
+  assert.equal(retryResult.json?.data?.id, createResult.json.data.id);
+  assert.equal(retryResult.json?.data?.orderNumber, orderNumber);
 
   const ordersResult = await requestJson('/api/orders', {
     headers: authHeaders,
@@ -333,6 +402,7 @@ const run = async () => {
     await testCreateOrder();
     await testCreateExternalOrder();
     await testDeleteCustomerContact();
+    await testDashboardFoundation();
     console.log('backend/tests/api.test.js: OK');
   } finally {
     await cleanupCreatedOrders();

@@ -53,6 +53,8 @@ const isIntegrationSchemaError = (error) => {
   );
 };
 
+const isUniqueConstraintError = (error) => error?.details?.code === '23505';
+
 const BASE_ORDER_SELECT = `
   id,
   order_number,
@@ -371,6 +373,21 @@ const findExistingExternalOrder = async (restaurantId, sourceApp, externalOrderI
   return data;
 };
 
+const findExistingOrderByNumber = async (restaurantId, orderNumber) => {
+  const { data, error } = await supabaseAdmin
+    .from('orders')
+    .select('id')
+    .eq('restaurant_id', restaurantId)
+    .eq('order_number', orderNumber.trim())
+    .maybeSingle();
+
+  if (error) {
+    throw new AppError('Gagal memeriksa order POS yang sudah ada.', 500, error);
+  }
+
+  return data;
+};
+
 const buildOrderInsertPayload = (restaurantId, payload, includeIntegrationFields = true) => ({
   restaurant_id: restaurantId,
   order_number: payload.orderNumber.trim(),
@@ -458,6 +475,14 @@ const createOrder = async (restaurantCode, payload, actor = null) => {
   const sourceApp = sanitizeOptionalString(payload.sourceApp);
   const externalOrderId = sanitizeOptionalString(payload.externalOrderId);
 
+  if (orderSource === 'pos') {
+    const existingPosOrder = await findExistingOrderByNumber(restaurant.id, payload.orderNumber);
+
+    if (existingPosOrder?.id) {
+      return getOrderById(restaurant.id, existingPosOrder.id);
+    }
+  }
+
   if (orderSource === 'external' && sourceApp && externalOrderId) {
     const existingExternalOrder = await findExistingExternalOrder(
       restaurant.id,
@@ -470,8 +495,23 @@ const createOrder = async (restaurantCode, payload, actor = null) => {
     }
   }
 
-  const { row: orderRow, persistedIntegrationFields: orderFieldsPersisted } =
-    await insertOrderRow(restaurant.id, payload, true);
+  let orderRow;
+  let orderFieldsPersisted;
+
+  try {
+    ({ row: orderRow, persistedIntegrationFields: orderFieldsPersisted } =
+      await insertOrderRow(restaurant.id, payload, true));
+  } catch (error) {
+    if (orderSource === 'pos' && error instanceof AppError && isUniqueConstraintError(error)) {
+      const existingPosOrder = await findExistingOrderByNumber(restaurant.id, payload.orderNumber);
+
+      if (existingPosOrder?.id) {
+        return getOrderById(restaurant.id, existingPosOrder.id);
+      }
+    }
+
+    throw error;
+  }
 
   const paymentsPayload = payload.payments
     .filter((payment) => Number(payment.amount) > 0)

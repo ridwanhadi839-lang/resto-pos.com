@@ -96,7 +96,7 @@ export const POSMenuPanel: React.FC<POSMenuPanelProps> = ({
                 style={styles.productsList}
                 data={filteredProducts}
                 keyExtractor={(item) => item.id}
-                numColumns={4}
+                numColumns={5}
                 columnWrapperStyle={styles.productRow}
                 contentContainerStyle={styles.productGrid}
                 renderItem={({ item }) => (
@@ -126,8 +126,8 @@ const styles = StyleSheet.create({
     minHeight: 0,
     backgroundColor: COLORS.card,
     borderRadius: RADIUS.lg,
-    padding: 12,
-    gap: 12,
+    padding: 10,
+    gap: 10,
   },
   ordersPanel: {
     flex: 1,
@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
   menuContentWrap: {
     flex: 1,
     minHeight: 0,
-    gap: 12,
+    gap: 10,
   },
   ordersContentWrap: {
     flex: 1,
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   categorySection: {
-    gap: 8,
+    gap: 6,
   },
   sectionHeading: {
     fontSize: 14,
@@ -165,15 +165,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   productGrid: {
-    paddingBottom: 12,
-    gap: 10,
+    paddingBottom: 10,
+    gap: 8,
   },
   productRow: {
-    gap: 10,
+    gap: 8,
   },
   productCardWrap: {
     flex: 1,
-    maxWidth: '23%',
+    maxWidth: '19%',
   },
   loadingWrap: {
     flex: 1,

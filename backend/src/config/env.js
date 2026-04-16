@@ -6,6 +6,16 @@ const parseCorsOrigins = (value) =>
     .map((origin) => origin.trim())
     .filter(Boolean);
 
+const isPlaceholderValue = (value) => {
+  const normalizedValue = normalizeEnvValue(value).toLowerCase();
+
+  return (
+    !normalizedValue ||
+    normalizedValue.includes('your-') ||
+    normalizedValue.includes('replace-with')
+  );
+};
+
 const env = {
   nodeEnv: normalizeEnvValue(process.env.NODE_ENV) || 'development',
   port: Number(process.env.PORT || 4000),
@@ -32,6 +42,26 @@ const validateEnvConfig = () => {
 
   if (env.nodeEnv === 'production' && env.corsOrigins.includes('*')) {
     issues.push('CORS_ORIGIN tidak boleh "*" pada production.');
+  }
+
+  if (env.nodeEnv === 'production') {
+    const requiredProductionValues = [
+      ['SUPABASE_URL', env.supabaseUrl],
+      ['SUPABASE_ANON_KEY', env.supabaseAnonKey],
+      ['SUPABASE_SERVICE_ROLE_KEY', env.supabaseServiceRoleKey],
+      ['JWT_SECRET', env.jwtSecret],
+      ['INTEGRATION_API_KEY', env.integrationApiKey],
+    ];
+
+    requiredProductionValues.forEach(([name, value]) => {
+      if (isPlaceholderValue(value)) {
+        issues.push(`${name} wajib diisi dengan nilai production.`);
+      }
+    });
+
+    if (env.supabaseUrl && !env.supabaseUrl.startsWith('https://')) {
+      issues.push('SUPABASE_URL production wajib memakai HTTPS.');
+    }
   }
 
   return issues;

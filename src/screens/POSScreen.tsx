@@ -128,6 +128,11 @@ export const POSScreen: React.FC = () => {
   const createOrder = useOrderStore((s) => s.createOrder);
   const addCancelLog = useOrderStore((s) => s.addCancelLog);
   const resetOrderState = useOrderStore((s) => s.resetOrderState);
+  const isOnline = useOrderStore((s) => s.isOnline);
+  const isSyncing = useOrderStore((s) => s.isSyncing);
+  const pendingSyncCount = useOrderStore((s) => s.pendingSyncCount);
+  const lastSyncError = useOrderStore((s) => s.lastSyncError);
+  const syncPendingOrders = useOrderStore((s) => s.syncPendingOrders);
   const openTillEntry = useTillStore((s) => s.openTillEntry);
   const setOpenTill = useTillStore((s) => s.setOpenTill);
   const resetTillState = useTillStore((s) => s.resetTillState);
@@ -145,6 +150,7 @@ export const POSScreen: React.FC = () => {
   const selectedCategoryName =
     categories.find((category) => category.id === selectedCategoryId)?.name ?? '';
   const [isPaymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [isPaymentSubmitting, setPaymentSubmitting] = useState(false);
   const [isNotesModalVisible, setNotesModalVisible] = useState(false);
   const [notesDraft, setNotesDraft] = useState('');
   const [isVoidModalVisible, setVoidModalVisible] = useState(false);
@@ -203,18 +209,16 @@ export const POSScreen: React.FC = () => {
     try {
       const contacts = await getSavedCustomerContacts();
       setSavedContacts(contacts);
+      return contacts;
     } catch (error) {
       console.warn(
         'Gagal memuat customer contacts:',
         error instanceof Error ? error.message : error
       );
       setSavedContacts([]);
+      return [];
     }
   }, []);
-
-  useEffect(() => {
-    loadSavedContacts();
-  }, [loadSavedContacts]);
   const refreshSavedPrinters = useCallback(async () => {
     const [saved, savedMode] = await Promise.all([
       getSavedThermalTargets(),
@@ -222,11 +226,8 @@ export const POSScreen: React.FC = () => {
     ]);
     setSavedPrinters(saved);
     setPrinterSetupMode(savedMode);
+    return { saved, savedMode };
   }, []);
-
-  useEffect(() => {
-    refreshSavedPrinters();
-  }, [refreshSavedPrinters]);
 
   useEffect(() => {
     if (route.name !== 'Home') return;
@@ -284,6 +285,9 @@ export const POSScreen: React.FC = () => {
   const handlePaymentSuccess = async (payload: {
     payments: PaymentLine[];
   }) => {
+    if (isPaymentSubmitting) return;
+
+    setPaymentSubmitting(true);
     try {
       if (customer.name.trim() && customer.phone.trim()) {
         try {
@@ -313,6 +317,8 @@ export const POSScreen: React.FC = () => {
         'Pembayaran gagal',
         error instanceof Error ? error.message : 'Order gagal diproses oleh backend.'
       );
+    } finally {
+      setPaymentSubmitting(false);
     }
   };
 
@@ -401,6 +407,9 @@ export const POSScreen: React.FC = () => {
     });
     setIsAddingCustomer(savedContacts.length === 0);
     setCustomerModalVisible(true);
+    void loadSavedContacts().then((contacts) => {
+      setIsAddingCustomer(contacts.length === 0);
+    });
   };
 
   const handleSelectSavedContact = (contact: SavedCustomerContact) => {
@@ -670,6 +679,7 @@ export const POSScreen: React.FC = () => {
         setMoreSection(null);
         setSelectedReportDate(null);
         resetReportCalendar();
+        await refreshSavedPrinters();
         setMoreModalVisible(true);
         return;
       default:
@@ -683,6 +693,24 @@ export const POSScreen: React.FC = () => {
       return;
     }
     setPaymentModalVisible(true);
+  };
+
+  const handleRetrySync = async () => {
+    const result = await syncPendingOrders();
+    if (result.ok) {
+      Alert.alert(
+        'Sync selesai',
+        result.syncedCount > 0
+          ? `${result.syncedCount} pending order berhasil dikirim.`
+          : 'Tidak ada pending order yang perlu dikirim.'
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Sync belum selesai',
+      result.error ?? `${result.pendingCount} pending order belum terkirim.`
+    );
   };
 
   const handleCloseVoidModal = () => {
@@ -758,7 +786,11 @@ export const POSScreen: React.FC = () => {
           customer={customer}
           hasCustomerInfo={hasCustomerInfo}
           discountPercent={discountPercent}
-          pendingCount={pendingCarts.length}
+          pendingCartCount={pendingCarts.length}
+          pendingSyncCount={pendingSyncCount}
+          isOnline={isOnline}
+          isSyncing={isSyncing}
+          lastSyncError={lastSyncError}
           isPaidOrderLoaded={isPaidOrderLoaded}
           orderNote={orderNote}
           items={items}
@@ -772,6 +804,7 @@ export const POSScreen: React.FC = () => {
           onEditCartItem={handleCartItemEdit}
           onRemoveCartItem={removeItem}
           onPay={handlePayPress}
+          onRetrySync={handleRetrySync}
           payDisabled={items.length === 0 || isPaidOrderLoaded}
         />
 
@@ -796,6 +829,7 @@ export const POSScreen: React.FC = () => {
         onClose={() => setPaymentModalVisible(false)}
         onSubmitPayment={handlePaymentSuccess}
         totalAmount={total()}
+        isSubmitting={isPaymentSubmitting}
       />
 
       <Modal

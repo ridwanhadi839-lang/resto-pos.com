@@ -22,6 +22,7 @@ interface PaymentModalProps {
   onClose: () => void;
   onSubmitPayment: (payload: PaymentSubmitPayload) => void;
   totalAmount: number;
+  isSubmitting?: boolean;
 }
 
 const METHODS: Array<{ key: PaymentMethod; label: string }> = [
@@ -42,6 +43,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   onClose,
   onSubmitPayment,
   totalAmount,
+  isSubmitting = false,
 }) => {
   const [amounts, setAmounts] = React.useState<Record<PaymentMethod, string>>({
     cash: '',
@@ -80,6 +82,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   };
 
   const submitPayment = () => {
+    if (isSubmitting) return;
+
     if (totalPaid < totalAmount) {
       Alert.alert('Pembayaran kurang', `Sisa pembayaran ${formatPrice(totalAmount - totalPaid)}.`);
       return;
@@ -170,8 +174,12 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 </Text>
               </View>
 
-              <TouchableOpacity style={styles.payBtn} onPress={submitPayment}>
-                <Text style={styles.payBtnText}>Bayar</Text>
+              <TouchableOpacity
+                style={[styles.payBtn, isSubmitting && styles.payBtnDisabled]}
+                onPress={submitPayment}
+                disabled={isSubmitting}
+              >
+                <Text style={styles.payBtnText}>{isSubmitting ? 'Menyimpan...' : 'Bayar'}</Text>
               </TouchableOpacity>
             </View>
           </TouchableWithoutFeedback>
@@ -298,6 +306,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primaryPurple,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  payBtnDisabled: {
+    backgroundColor: COLORS.textLight,
   },
   payBtnText: {
     color: COLORS.white,
